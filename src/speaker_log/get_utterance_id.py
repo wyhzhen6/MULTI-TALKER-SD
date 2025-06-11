@@ -101,7 +101,7 @@ def choose_utt(spk2utt, utterance_num, conf, meeting_type):
     # New meeting types or generation strategies can be added here
     # ==========================================================================
     if meeting_type == 'presentation':
-        
+        speaker_num = len(spk2utt.keys())
         # get main speaker number
         main_speaker_num, main_utterance_num = conf['main_speaker'].split(':')
         main_speaker_l, main_speaker_r = main_speaker_num.split('-')
@@ -109,13 +109,12 @@ def choose_utt(spk2utt, utterance_num, conf, meeting_type):
         main_speaker_num = int((np.random.rand() * (float(main_speaker_r) - float(main_speaker_l)) + float(main_speaker_l)) * speaker_num) 
         main_speaker_num = 1 if main_speaker_num == 0 else main_speaker_num
         main_utterance_num = int(np.random.rand() * (float(main_utterance_r) - float(main_utterance_l)) + float(main_utterance_l) * utterance_num)
-
         main_utt_list, other_utt_list = get_main_speaker(spk2utt, speaker_num, main_speaker_num, utterance_num, main_utterance_num)
-
         # main_utt_list = [{'path': utt['path'], 'duration': utt['duration'], 'speaker_id': utt['speaker_id'], 'main_speaker': 1} for utt in main_utt_list]
         # other_utt_list = [{'path': utt['path'], 'duration': utt['duration'], 'speaker_id': utt['speaker_id'], 'main_speaker': 0} for utt in other_utt_list]
-        main_utt_list = [ utt.update({'main_speaker': 1}) for utt in main_utt_list ]
-        other_utt_list = [ utt.update({'main_speaker': 0}) for utt in other_utt_list ]
+        
+        main_utt_list = [ {**utt, 'main_speaker': 1} for utt in main_utt_list ]
+        other_utt_list = [ {**utt, 'main_speaker': 0} for utt in other_utt_list ]
 
         split_num = len(main_utt_list)
         utt_list = main_utt_list + other_utt_list
@@ -127,12 +126,12 @@ def choose_utt(spk2utt, utterance_num, conf, meeting_type):
         main_utt_list, other_utt_list = get_main_speaker(spk2utt, speaker_num, 1, utterance_num, interviewer_utterance_num)
         # main_utt_list = [{'path': utt['path'], 'duration': utt['duration'], 'speaker_id': utt['speaker_id'], 'main_speaker': 1} for utt in main_utt_list]
         # other_utt_list = [{'path': utt['path'], 'duration': utt['duration'], 'speaker_id': utt['speaker_id'], 'main_speaker': 0} for utt in other_utt_list]
-        main_utt_list = [ utt.update({'main_speaker': 1}) for utt in main_utt_list ]
-        other_utt_list = [ utt.update({'main_speaker': 0}) for utt in other_utt_list ]
+        main_utt_list = [ {**utt, 'main_speaker': 1} for utt in main_utt_list ]
+        other_utt_list = [ {**utt, 'main_speaker': 0} for utt in other_utt_list ]
 
         split_num = len(main_utt_list)
         utt_list = main_utt_list + other_utt_list
-        print(len(main_utt_list), len(other_utt_list))
+        
 
 
     elif meeting_type == 'discussion':

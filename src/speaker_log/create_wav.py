@@ -45,11 +45,16 @@ if __name__ == '__main__':
             cutting_start_time = int(float(keys[4]) * args.sample_rate)
             duration = ed - st
             lens = min(len(waveform)-cutting_start_time, duration)
+            try:
+                waveform = waveform /  np.max(np.abs(waveform)) * 0.9
+            except:
+                pass
             wavs[st:st+lens] = wavs[st:st+lens] + waveform[cutting_start_time:cutting_start_time+lens]
     
     wavs = wavs / np.max(np.abs(wavs))
     wavs = wavs * 0.9
 
-    sf.write(os.path.join(args.output_dir, 'output.wav'), wavs, args.sample_rate)
+    basename = os.path.basename(args.logging_file).split('.')[0]
+    sf.write(os.path.join(args.output_dir, f'{basename}.wav'), wavs, args.sample_rate)
 
 

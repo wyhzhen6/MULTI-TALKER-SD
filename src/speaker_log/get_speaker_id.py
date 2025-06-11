@@ -162,6 +162,7 @@ if __name__ == '__main__':
 
 
     speaker_id_json = os.path.join(args.output_dir, 'speaker_id.list')
+    available_examples = 0
     with open(speaker_id_json, 'w', encoding='utf-8') as f:
 
         for i in tqdm(range(config["iteration"])):
@@ -206,8 +207,10 @@ if __name__ == '__main__':
             
             assert len(chosen) == number, f"number of chosen speakers {len(chosen)} not equal to {number}"
             f.write(' '.join(chosen) + '\n')
-                   
-            
+            available_examples += 1
+            if available_examples >= config['max_examples']:
+                logging.info(f"Reached max examples: {config['max_examples']}")
+                break
 
 
                 
