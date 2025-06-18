@@ -3,6 +3,8 @@ import argparse
 import json
 import random
 
+
+
 def load_json(path):
     with open(path, 'r', encoding='utf-8') as f:
         return json.load(f)
@@ -43,7 +45,10 @@ def main():
     parser.add_argument('--dataset', required=True, help='')
     parser.add_argument('--subset', nargs='+', required=True, help='Names of subsets, e.g., train test dev')
     parser.add_argument('--radio', nargs='+', type=float, required=True, help='Ratios for subsets, e.g., 0.8 0.1 0.1')
+    parser.add_argument('--seed', default=1234, help='')
+
     args = parser.parse_args()
+    random.seed(args.seed)  # For reproducibility
 
     if len(args.subset) != len(args.radio):
         raise ValueError("The number of subset names and ratio values must match.")
