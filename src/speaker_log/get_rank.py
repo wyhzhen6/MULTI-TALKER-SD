@@ -160,12 +160,6 @@ class UtteranceRanks():
                 tmp_length = length
                 max_cover = length - end_overlap_time
 
-                if 'libri_5639' in spks:
-                    p = 1
-                else: p = 0
-                if p:
-                    print("=======")
-                    print(f"iter: {iter}, silence_or_overlap: {silence_or_overlap}, length: {length}, end_overlap_time: {end_overlap_time}, last_speaker: {last_speaker}")
 
                 max_id = -1
                 for i in range(silence_or_overlap):
@@ -190,10 +184,10 @@ class UtteranceRanks():
                         length = self.utterance[iter+i].head_time + self.utterance[iter+i].duration
                         max_id = i
 
-                    if p:
-                        print(length, end_overlap_time, last_speaker)
-                        print(f"iter: {iter+i}, head_time: {self.utterance[iter+i].head_time}, duration: {self.utterance[iter+i].duration}, "
-                              f"speaker_id: {self.utterance[iter+i].speaker_id}, overlap_len: {overlap_len}, end_overlap_time: {end_overlap_time}")
+                    # if p:
+                    #     print(length, end_overlap_time, last_speaker)
+                    #     print(f"iter: {iter+i}, head_time: {self.utterance[iter+i].head_time}, duration: {self.utterance[iter+i].duration}, "
+                    #           f"speaker_id: {self.utterance[iter+i].speaker_id}, overlap_len: {overlap_len}, end_overlap_time: {end_overlap_time}")
 
                 
                    # The overlap segment does not exceed the original length
@@ -369,7 +363,8 @@ if __name__ == '__main__':
 
             # rttm type recording
             #   start_time    end_time    speaker_id    utterance_id 
-            speaker_logging = os.path.join(args.output_dir, f'{iter:07d}.list')   
+            meeting_type = sample['meeting_type'][:3]
+            speaker_logging = os.path.join(args.output_dir, f'{iter:07d}_{meeting_type}.list')   
             with open(speaker_logging, 'w', encoding='utf-8') as f_out: 
                 for id, start_time, timestamps, cutting_text in zip(idex, start_times, cutting_timestamp, cutting_texts):
 

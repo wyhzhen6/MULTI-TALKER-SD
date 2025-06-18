@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 logger.propagate = False
 
 def get_gerder(data_path):
-    gerder_path = os.path.join(data_path, "speaker.info")
+    gerder_path = os.path.join(data_path, "resource_aishell/speaker.info")
     if os.path.exists(gerder_path):
         with open(gerder_path, 'r') as f:
             lines = f.readlines()
