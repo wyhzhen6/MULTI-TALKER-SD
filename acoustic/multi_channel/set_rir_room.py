@@ -504,11 +504,8 @@ class rir_room:
     def resample(self,y, original_sample_rate, target_sample_rate: int = 16_000):
         return signal.resample(y, int(len(y) * target_sample_rate / original_sample_rate))
 
-    def gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
-
-        point_noise = []
-        
-        self.room_for_noise = pra.ShoeBox(
+    def point_noise_simulate(self,noise,start,noise_list):
+        room_for_noise = pra.ShoeBox(
             self.room_size,
             fs=self.fs,
             materials=pra.Material(self.e_absorption),
@@ -516,10 +513,58 @@ class rir_room:
             ray_tracing=True,
             air_absorption=True,
         )
-
         for i,item in enumerate(self.mic_loc):
-            self.room_for_noise.add_microphone_array(item)
+            room_for_noise.add_microphone_array(item)
 
+        noise_height = round(random.uniform(1.2,1.4),3)
+
+        #pos
+        if noise_list[1] == 'near':
+            center = self.loc[random.randint(0,len(self.loc)-1)]
+            r = random.uniform(0.1,0.5)
+            theta = random.uniform(0, 2 * math.pi)
+            x = center[0] + r * math.cos(theta)
+            y = center[1] + r * math.sin(theta)
+
+            noise_pos = [x,y,noise_height]
+
+
+        elif noise_list[1] == 'far':
+            width = self.room_size[0]-2*self.d
+            length = self.room_size[1]-self.d
+            def top_edge():
+                return (round(random.uniform(self.d, width),2), length)
+                
+            def bottom_edge():
+                return (round(random.uniform(self.d, width),2), self.d)
+                
+            def left_edge():
+                return (self.d, round(random.uniform(self.d, length),2))
+            
+            edges = [top_edge, bottom_edge, left_edge]
+            random.shuffle(edges)
+
+            for edge in edges:
+                x,y = edge()
+                break
+
+            noise_pos  = [x,y,noise_height]
+
+        
+        tmp = 5*self.fs
+        if noise_list[0] == 'music':
+            room_for_noise.add_source(noise_pos, signal=noise[tmp:tmp+min(tmp,len(noise))], delay = start)
+            
+        else:
+            room_for_noise.add_source(noise_pos, signal=noise[:min(tmp,len(noise))], delay = start)
+
+        room_for_noise.simulate()
+        return room_for_noise.mic_array.signals
+
+    def gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
+
+        point_noise = []
+        
         if max_segments == None:
             max_segments = int(self.audio_len/16)
         point = np.random.randint(min_segments, max_segments)
@@ -528,6 +573,7 @@ class rir_room:
         interval = np.clip(intervals,8,None)
         time_cursor = 0.0
         noise_num = 0
+        final_point_noise_audio = None
         for i in range(point):
             noise_list = random.choice(target_categories)#type pos
             filename = random.choice(category_files[noise_list[0]])
@@ -545,57 +591,23 @@ class rir_room:
             start = time_cursor + interval[i]
             end = start + dur
             self.point_noise_time += dur
-            if end > self.audio_len:
+            if end > self.audio_len or i == point-1:
                 print(f"add {noise_num} point noise")
                 break  
             time_cursor = end
+            point_noise_audio = self.point_noise_simulate(noise,interval[i],noise_list)
 
-            noise_height = round(random.uniform(1.2,1.4),3)
-
-            #pos
-            if noise_list[1] == 'near':
-                center = self.loc[random.randint(0,len(self.loc)-1)]
-                r = random.uniform(0.1,0.5)
-                theta = random.uniform(0, 2 * math.pi)
-                x = center[0] + r * math.cos(theta)
-                y = center[1] + r * math.sin(theta)
-
-                noise_pos = [x,y,noise_height]
-
-
-            elif noise_list[1] == 'far':
-                width = self.room_size[0]-2*self.d
-                length = self.room_size[1]-self.d
-                def top_edge():
-                    return (round(random.uniform(self.d, width),2), length)
-                    
-                def bottom_edge():
-                    return (round(random.uniform(self.d, width),2), self.d)
-                    
-                def left_edge():
-                    return (self.d, round(random.uniform(self.d, length),2))
-                
-                edges = [top_edge, bottom_edge, left_edge]
-                random.shuffle(edges)
-
-                for edge in edges:
-                    x,y = edge()
-                    break
-
-                noise_pos  = [x,y,noise_height]
-                
-            if noise_list[0] == 'music':
-                tmp = 5*self.fs
-                self.room_for_noise.add_source(noise_pos, signal=noise[tmp:tmp+min(tmp,len(noise))], delay = start)
-                
+            tmp = interval[i]*self.fs
+            if i == 0:
+                final_point_noise_audio = point_noise_audio
             else:
-                self.room_for_noise.add_source(noise_pos, signal=noise[:min(5* self.fs,len(noise))], delay = start)
+                final_point_noise_audio = np.concatenate([final_point_noise_audio, point_noise_audio], axis=1)
+
             noise_num+=1
 
-        self.room_for_noise.simulate()
         array_num = 0
         for i in range(len(self.mic_loc)):
-            array_signal = self.room_for_noise.mic_array.signals[array_num : array_num + len(self.mic_loc[i][1])]
+            array_signal = final_point_noise_audio[array_num : array_num + len(self.mic_loc[i][1])]
             array_num += len(self.mic_loc[i][1])
             
             point_noise.append(array_signal)
