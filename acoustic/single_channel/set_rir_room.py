@@ -29,7 +29,7 @@ from collections import defaultdict
 
 #loc = set_pos_discuss()
 class rir_room:
-    def __init__(self ,wav_path, list_path,filepath,mic_pos = None,room_type = None,room_size = None ,fs = 16000,rt60 = None,  meeting_type = None,speech_host_label = None,is_compute_DRR = True,is_compute_SRR = True):
+    def __init__(self ,wav_path,config, list_path,filepath,mic_pos = None,room_type = None,room_size = None ,fs = 16000,rt60 = None,  meeting_type = None,speech_host_label = None,is_compute_DRR = True,is_compute_SRR = True):
         
         self.wav_path = wav_path
         self.meeting_type = meeting_type
@@ -66,12 +66,12 @@ class rir_room:
         self.SRR_circle = []
         self.SRR_linear = []
         self.host_pos = []
-        self.linear_array_distances = [0.15,0.1,0.05,0.2,0.05,0.1,0.15]
+        
 
-        meeting_type = ["desk","circle","speech"]
+
 
         self.read_listfile2(list_path,filepath)
-        self.generate_room_pra(meeting_type)
+        self.generate_room_pra(meeting_type = config['meeting_type_arr'],size_mid = config['room_size_mid'],size_lar = config['room_size_lar'],rt60_mid = config['rt60_mid'],rt60_lar = config['rt60_lar'])
         self.create_room()
         self.generate_src_pra()
         self.create_mic()
@@ -118,19 +118,23 @@ class rir_room:
 
         
 #generate room_type meeting_type rt60 room_size e_absorption max_order src_num
-    def generate_room_pra(self,meeting_type):
+    def generate_room_pra(self,meeting_type,size_mid,size_lar,rt60_mid,rt60_lar):
         if self.rt60 == None:
             if len(self.listdata)<20:
-                self.rt60 = round(random.uniform(0.2,0.8),2)
+                self.rt60 = round(random.uniform(rt60_mid[0],rt60_mid[1]),2)
             else:
-                self.rt60 = round(random.uniform(0.2,1),2)
+                self.rt60 = round(random.uniform(rt60_lar[0],rt60_lar[1]),2)
                 
         if self.room_size == None:
             if len(self.listdata)<20:
-                self.room_size = [random.uniform(8,10), random.uniform(7,8), random.uniform(4,5)]
+                size_min = size_mid[0]
+                size_max = size_mid[1]
+                self.room_size = [random.uniform(size_min[0],size_max[0]), random.uniform(size_min[1],size_max[1]), random.uniform(size_min[2],size_max[2])]
                 self.room_type = "middle"
             else:
-                self.room_size = [random.uniform(10,12), random.uniform(8,10), random.uniform(5,6)]
+                size_min = size_lar[0]
+                size_max = size_lar[1]
+                self.room_size = [random.uniform(size_min[0],size_max[0]), random.uniform(size_min[1],size_max[1]), random.uniform(size_min[2],size_max[2])]
                 self.room_type = "large"
  
         if self.meeting_type == None:
@@ -409,9 +413,8 @@ class rir_room:
 
         return category_files,target_categories
 
-    def resample(self,y, original_sample_rate, target_sample_rate: int = 16_000):
+    def resample(self,y, original_sample_rate, target_sample_rate: int = 16000):
         return signal.resample(y, int(len(y) * target_sample_rate / original_sample_rate))
-        
     def point_noise_simulate(self,noise,start,noise_list):
         room_for_noise = pra.ShoeBox(
             self.room_size,
@@ -422,7 +425,7 @@ class rir_room:
             air_absorption=True,
         )
 
-        self.room_for_noise.add_microphone(self.mic_loc)
+        room_for_noise.add_microphone(self.mic_loc)
 
         noise_height = round(random.uniform(1.2,1.4),3)
 
@@ -462,14 +465,25 @@ class rir_room:
         tmp = 5*self.fs
         if noise_list[0] == 'music':
             room_for_noise.add_source(noise_pos, signal=noise[tmp:tmp+min(tmp,len(noise))], delay = start)
-            
         else:
             room_for_noise.add_source(noise_pos, signal=noise[:min(tmp,len(noise))], delay = start)
 
         room_for_noise.simulate()
-        return room_for_noise.mic_array.signals
         
+        return room_for_noise.mic_array.signals
+
     def gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
+        
+        self.room_for_noise = pra.ShoeBox(
+            self.room_size,
+            fs=self.fs,
+            materials=pra.Material(self.e_absorption),
+            max_order=self.max_order,
+            ray_tracing=True,
+            air_absorption=True,
+        )
+
+        self.room_for_noise.add_microphone(self.mic_loc)
 
         if max_segments == None:
             max_segments = int(self.audio_len/16)
@@ -500,17 +514,17 @@ class rir_room:
                 print(f"add {noise_num} point noise")
                 break  
             time_cursor = end
-            
+
             point_noise_audio = self.point_noise_simulate(noise,interval[i],noise_list)
 
+            tmp = interval[i]*self.fs
             if i == 0:
                 final_point_noise_audio = point_noise_audio
             else:
-                final_point_noise_audio = np.concatenate([final_point_noise_audio, point_noise_audio])
+                final_point_noise_audio = np.concatenate([final_point_noise_audio, point_noise_audio],axis = 1)
 
             noise_num+=1
-
-   
+            
         return final_point_noise_audio
 
     def compute_DRR(self,h, fs, t_direct_ms=5):
