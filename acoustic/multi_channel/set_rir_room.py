@@ -502,7 +502,7 @@ class rir_room:
 
         return category_files,target_categories
 
-    def resample(self,y, original_sample_rate, target_sample_rate: int = 16_000):
+    def resample(self,y, original_sample_rate, target_sample_rate: int = 16000):
         return signal.resample(y, int(len(y) * target_sample_rate / original_sample_rate))
 
     def point_noise_simulate(self,noise,start,noise_list):
