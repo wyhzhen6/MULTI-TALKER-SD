@@ -126,7 +126,7 @@ class rir_room:
 
         
 #generate room_type meeting_type rt60 room_size e_absorption max_order src_num
-    def generate_room_pra(self,meeting_type):
+    def generate_room_pra(self,meeting_type,size_mid,size_lar,rt60_mid,rt60_lar):
         if self.rt60 == None:
             if len(self.listdata)<20:
                 self.rt60 = round(random.uniform(rt60_mid[0],rt60_mid[1]),2)
