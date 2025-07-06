@@ -108,7 +108,9 @@ def add_noise(room,category_files,target_categories,simulate_config,filepath):
     diffuse_noise_path    = simulate_config.get('diffuse_noise_path', ) 
     output_path           = simulate_config.get('output_path', ) 
     SNR_point             = simulate_config.get('SNR_point', )
+    SNR_point_arr         = simulate_config.get('SNR_point_arr', )
     SNR_diffuse           = simulate_config.get('SNR_diffuse', )    
+    SNR_diffuse_arr       = simulate_config.get('SNR_diffuse_arr', )      
     filename,tmp = os.path.splitext(filepath)
     print("add noise")
     #gen point_noise
@@ -121,12 +123,13 @@ def add_noise(room,category_files,target_categories,simulate_config,filepath):
         fs = room.fs
     
     diffuse_noise = diffuse_noise[:,np.newaxis]
+    
     if SNR_point == None:
-        SNR_point = random.randint(8,17)
+        SNR_point = random.randint(SNR_point_arr[0],SNR_point_arr[1])
     room.SNR_point = SNR_point
 
     if SNR_diffuse == None:
-        SNR_diffuse = random.randint(13,25)
+        SNR_diffuse = random.randint(SNR_diffuse_arr[0],SNR_diffuse_arr[1])
     room.SNR_diffuse = SNR_diffuse
 
 
@@ -175,6 +178,7 @@ def rir_simulate(simulate_config):
                 list_path = list_path,
                 filepath = filepath,
                 fs = fs,
+                config = simulate_config,
                 rt60 = simulate_config['rt60'],
                 room_size = simulate_config['room_size'],
                 room_type = simulate_config['room_type'],
