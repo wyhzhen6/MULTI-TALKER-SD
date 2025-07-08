@@ -2,10 +2,10 @@
 seed: 1234
 
 # speaker logging
-iteration: 3000  
-max_choose: 10        # max number of each speaker to choose 
+iteration: 30000  
+max_choose: 7        # max number of each speaker to choose 
 stop_available: 10    # stop if the number of available speakers is less than this value
-max_examples: 500      # max number of speakers in a meeting
+max_examples: 30000      # max number of examples
 
 speaker:
   # number: ['1-5:0.1', '6-10:0.2', '11-20:0.5', '21-30:0.2']
@@ -48,5 +48,27 @@ meeting:
     
 
 vad_pretrained_model: 'cache/pyannote-vad/pytorch_model.bin'
-whiper_model: 'large-v2'
+whisper_model: 'large-v2'
+whisper_model_path: 'cache/whisper_model/'
 cutting_max_length: 1.5   # (s) max length of each cutting segment
+
+
+simulate_config:
+  point_noise_csv: "config/noise/noise.csv"
+  point_noise_type: "config/noise/point_noise.txt"
+  fs: 16000 
+  rt60:  null
+  room_size:  null
+  room_type:  null 
+  meeting_type:  null
+  array_num: null
+  mic_num:  null
+  mic_radius:  null
+  mic_pos: null
+  max_order: null 
+  host_label: null
+  SNR_point : null
+  SNR_diffuse: null
+  is_compute_DRR: true
+  is_compute_SRR: true
+

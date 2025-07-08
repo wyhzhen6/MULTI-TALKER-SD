@@ -1,22 +1,21 @@
 #!/bin/bash
 
-set -eou pipefail
-
+# set -eou pipefail
 log() {
   	# This function is from espnet
   	local fname=${BASH_SOURCE[1]##*/}
   	echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-stage=1
-stop_stage=2
+stage=3
+stop_stage=3
 
 
 # ================= Fill in according to actual =================
-exp_dir=!				# where .wav to store
+exp_dir=exp/exp2				# where .wav to store
 librispeech_dir=!		# 
 aishell_1_dir=!			# Usually named data_aishell
-
+mkdir -p $exp_dir
 
 
 
@@ -63,14 +62,16 @@ fi
 
 
 
-subsets=(train test dev)
+# subsets=(test)
+subsets=(train dev)
 # ============================ speaker logging ============================ #
+# conda activate whisperX
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 	for subset in "${subsets[@]}"; do
-		subset_dir=metadata/$subset
+		subset_dir=$exp_dir/$subset
 		log "Getting speaker ids in $subset_dir"
 		python src/speaker_log/get_speaker_id.py \
-				--metadata_dir $subset_dir \
+				--metadata_dir metadata/$subset \
 				--output_dir $subset_dir \
 				--config config/config.yaml
 		log "Finished getting speaker ids"
@@ -84,28 +85,48 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 
 		log "Speaker logging: set ranking, silence, and overlap"
 		samples_nums=$((`cat $subset_dir/utterance_id.list | wc -l`))
-		# python src/speaker_log/get_rank.py \
-		# 		--utterance_id $subset_dir/utterance_id.list \
-		# 		--output_dir $subset_dir/samples \
-		# 		--samples_nums $samples_nums \
-		# 		--config config/config.yaml \
-		# 		--cutting_type whisper  	# direct_truncation
+		python src/speaker_log/get_rank.py \
+				--utterance_id $subset_dir/utterance_id.list \
+				--output_dir $subset_dir/samples \
+				--samples_nums $samples_nums \
+				--config config/config.yaml \
+				--gpus 0 1 2 3 4 5 6 7 \
+				--workers 8 \
+				--cutting_type whisper  	# direct_truncation
 	done
 fi
 
 
-subsets=(train test dev)
+subsets=(test)
+# subsets=(train test dev)
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
 	for subset in "${subsets[@]}"; do
-		subset_dir=metadata/$subset
+		subset_dir=$exp_dir/$subset
 		mkdir -p $subset_dir/wavs
-		ls $subset_dir/samples | while read line; do
-			log "Processing ${line}"
-			python src/speaker_log/create_wav.py \
-				--logging_file $subset_dir/samples/${line} \
-				--output_dir $subset_dir/wavs 
-		done
-		mv $subset_dir/wavs $exp_dir
-		mv $subset_dir/samples $exp_dir
-		cp config.yaml $exp_dir
+
+		python src/acoustic/simulate.py \
+				--config config/config.yaml \
+				--logging_list $subset_dir/samples \
+				--output_dir $subset_dir/wavs \
+				--point_noise_path XXXXX \
+				--diffuse_noise_path XXXXXX \
+				--num_workers 10
+	done
+	cp config/config.yaml $subset_dir
 fi
+
+# subsets=(train test dev)
+# if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
+# 	for subset in "${subsets[@]}"; do
+# 		subset_dir=metadata/$subset
+# 		mkdir -p $subset_dir/wavs
+# 		ls $subset_dir/samples | while read line; do
+# 			log "Processing ${line}"
+# 			python src/speaker_log/create_wav.py \
+# 				--logging_file $subset_dir/samples/${line} \
+# 				--output_dir $subset_dir/wavs 
+# 		done
+# 		mv $subset_dir/wavs $exp_dir
+# 		mv $subset_dir/samples $exp_dir
+# 		cp config.yaml $exp_dir
+# fi

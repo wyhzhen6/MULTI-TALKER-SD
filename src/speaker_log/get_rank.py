@@ -12,22 +12,27 @@ import yaml
 import numpy as np
 from tqdm import tqdm
 from rank_base import UtteranceCluster, Utterance, random_call, Segment
+import multiprocessing as mp
+import re
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.FileHandler(os.path.join('log.txt')),
-    ]
-)
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     datefmt='%Y-%m-%d %H:%M:%S',
+#     handlers=[
+#         logging.FileHandler(os.path.join('log.txt')),
+#     ]
+# )
 
 parser = ArgumentParser(add_help=True)
 parser.add_argument('--utterance_id', type=str)
 parser.add_argument('--config', type=str)
 parser.add_argument('--output_dir', type=str)
-parser.add_argument('--samples_nums', type=int)   
+parser.add_argument('--samples_nums', type=int)  
+parser.add_argument('--workers', type=int, default=8) 
+parser.add_argument('--gpus', nargs='+', default=['0']) 
 parser.add_argument('--cutting_type', choices=['whisper', 'pyannote_vad', 'noncut', 'direct_truncation'], default='noncut',)   
+
 args = parser.parse_args()
 
 
@@ -317,67 +322,197 @@ def interview_meeting(utt_list, conf, split_num, pipeline):
     return idex, start_times
 
 
-if __name__ == '__main__':
 
-    os.makedirs(args.output_dir, exist_ok=True)
-    config = yaml.safe_load(open(args.config, 'r'))
 
-    # load vad for cut
+
+
+def init_pipeline(args, config, gpu_id):
     if args.cutting_type == 'pyannote_vad':
         from pyannote.audio.pipelines import VoiceActivityDetection
         from pyannote.audio import Model
-        model = Model.from_pretrained(config['vad_pretrained_model'])
+        model = Model.from_pretrained(config['vad_pretrained_model']).to(f'cuda:{gpu_id}')
         pipeline = VoiceActivityDetection(segmentation=model)
         HYPER_PARAMETERS = {
             "onset": 0.5, "offset": 0.5,
-            "min_duration_on": 0.5,  
-            "min_duration_off": 0.0 
+            "min_duration_on": 0.5,
+            "min_duration_off": 0.0
         }
         pipeline.instantiate(HYPER_PARAMETERS)
     elif args.cutting_type == 'whisper':
         from faster_whisper import WhisperModel
-        pipeline = WhisperModel(config['whiper_model'], device="cuda", compute_type="float16")
+        pipeline = WhisperModel(config['whisper_model'], \
+            device='cuda', device_index=[int(gpu_id)],\
+            compute_type="float16", download_root=config['whisper_model_path'])
     else:
         pipeline = None
-    pipeline = {'pipline': pipeline, 'type': args.cutting_type, 'cutting_max_length': config['cutting_max_length']}
+    return {'pipline': pipeline, 'type': args.cutting_type, 'cutting_max_length': config['cutting_max_length']}
 
-    # seed
-    np.random.seed(config['seed'])
 
-    pbar = tqdm(total=args.samples_nums, desc='Processing', unit='samples')
-    iter = 0
+
+def process_batch(batch_lines, args, config, gpu_id, process_idx, counter, lock):
+    pipeline = init_pipeline(args, config, gpu_id)
+    print(f"{process_idx}: start")
+    for iter, line in enumerate(batch_lines):
+        line = line.strip()
+        if not line:
+            continue
+        sample = json.loads(line)
+
+        if sample['meeting_type'] == 'presentation':
+            idex, res = presentation_meeting(sample['utt_list'], config['meeting']['presentation'], sample['split_num'], pipeline)
+        elif sample['meeting_type'] == 'interview':
+            idex, res = interview_meeting(sample['utt_list'], config['meeting']['interview'], sample['split_num'], pipeline)
+        elif sample['meeting_type'] == 'discussion':
+            idex, res = discussion_meeting(sample['utt_list'], config['meeting']['discussion'], pipeline)
+        else:
+            continue
+
+        start_times, cutting_timestamp, cutting_texts = res
+
+        output_lines = []
+        meeting_type = sample['meeting_type'][:3]
+        for id, start_time, timestamps, cutting_text in zip(idex, start_times, cutting_timestamp, cutting_texts):
+            cut_start, duration = timestamps
+            if cut_start == -1:
+                continue
+            Transcription = sample['utt_list'][id]['Transcription'] if cutting_text == '<whole>' else cutting_text
+            speaker_id = sample['utt_list'][id]['speaker_id']
+            utterance_id = sample['utt_list'][id]['path']
+            if cutting_text == '<whole>':
+                assert duration == sample['utt_list'][id]['duration']
+            output_lines.append(f"{start_time:.3f} {start_time+duration:.3f} {speaker_id} {utterance_id} {cut_start:.3f} [{Transcription}]\n")
+            
+        with lock:
+            counter.value += 1
+
+        # 写文件
+        os.makedirs(args.output_dir, exist_ok=True)
+        speaker_logging = os.path.join(args.output_dir, f'{process_idx:02d}_{iter:05d}_{meeting_type}.list')
+        with open(speaker_logging, 'w', encoding='utf-8') as f_out:
+            f_out.writelines(output_lines)
+
+    return f"Process {process_idx} finished."
+
+
+
+
+
+if __name__ == '__main__':
+    
+    
+    os.makedirs(args.output_dir, exist_ok=True)
+    config = yaml.safe_load(open(args.config, 'r'))
     with open(args.utterance_id, 'r') as f:
-        for line in f:
-            line = line.strip()
-            sample = json.loads(line)
+        all_lines = f.readlines()
+
+    num_processes = args.workers
+    batch_size = len(all_lines) // num_processes + 1
+    batches = [all_lines[i*batch_size:(i+1)*batch_size] for i in range(num_processes)]
+    
+    
+    manager = mp.Manager()
+    progress_counter = manager.Value('i', 0) 
+    lock = manager.Lock()
+    total = args.samples_nums
+    pbar = tqdm(total=total, desc="All Progress", unit="samples")
+
+    def progress_watcher(counter):
+        last = 0
+        while True:
+            with lock:
+                current = counter.value
+            if current >= total:
+                pbar.update(current - last)
+                break
+            if current > last:
+                pbar.update(current - last)
+                last = current
+
+
+    watcher = mp.Process(target=progress_watcher, args=(progress_counter,))
+    watcher.start()
+    
+   
+
+    # 启动多进程任务
+    pool = mp.get_context('spawn').Pool(processes=num_processes)
+    results = []
+    for i in range(num_processes):
+        results.append(pool.apply_async(
+            process_batch,
+            args=(batches[i], args, config, args.gpus[i%len(args.gpus)], i, progress_counter, lock)
+        ))
+
+    pool.close()
+    pool.join()
+    watcher.join()
+
+    for r in results:
+        print(r.get())
+
+
+#. ============= single worker =================
+# if __name__ == '__main__':
+
+#     os.makedirs(args.output_dir, exist_ok=True)
+#     config = yaml.safe_load(open(args.config, 'r'))
+
+#     # load vad for cut
+#     if args.cutting_type == 'pyannote_vad':
+#         from pyannote.audio.pipelines import VoiceActivityDetection
+#         from pyannote.audio import Model
+#         model = Model.from_pretrained(config['vad_pretrained_model'])
+#         pipeline = VoiceActivityDetection(segmentation=model)
+#         HYPER_PARAMETERS = {
+#             "onset": 0.5, "offset": 0.5,
+#             "min_duration_on": 0.5,  
+#             "min_duration_off": 0.0 
+#         }
+#         pipeline.instantiate(HYPER_PARAMETERS)
+#     elif args.cutting_type == 'whisper':
+#         from faster_whisper import WhisperModel
+#         pipeline = WhisperModel(config['whisper_model'], device="cuda", compute_type="float16", download_root=config['whisper_model_path'])
+#     else:
+#         pipeline = None
+#     pipeline = {'pipline': pipeline, 'type': args.cutting_type, 'cutting_max_length': config['cutting_max_length']}
+
+#     # seed
+#     np.random.seed(config['seed'])
+
+#     pbar = tqdm(total=args.samples_nums, desc='Processing', unit='samples')
+#     iter = 0
+#     with open(args.utterance_id, 'r') as f:
+#         for line in f:
+#             line = line.strip()
+#             sample = json.loads(line)
             
-            if sample['meeting_type'] == 'presentation':
-                idex, res = presentation_meeting(sample['utt_list'], config['meeting']['presentation'], sample['split_num'], pipeline)
-            elif sample['meeting_type'] == 'interview':
-                idex, res = interview_meeting(sample['utt_list'], config['meeting']['interview'], sample['split_num'], pipeline)
-            elif sample['meeting_type'] == 'discussion':
-                idex, res = discussion_meeting(sample['utt_list'], config['meeting']['discussion'], pipeline)
+#             if sample['meeting_type'] == 'presentation':
+#                 idex, res = presentation_meeting(sample['utt_list'], config['meeting']['presentation'], sample['split_num'], pipeline)
+#             elif sample['meeting_type'] == 'interview':
+#                 idex, res = interview_meeting(sample['utt_list'], config['meeting']['interview'], sample['split_num'], pipeline)
+#             elif sample['meeting_type'] == 'discussion':
+#                 idex, res = discussion_meeting(sample['utt_list'], config['meeting']['discussion'], pipeline)
             
-            start_times, cutting_timestamp, cutting_texts = res
-            assert len(idex) == len(start_times) == len(cutting_timestamp) == len(cutting_texts), "The length of idex, start_times and cutting_timestamp must be the same."
+#             start_times, cutting_timestamp, cutting_texts = res
+#             assert len(idex) == len(start_times) == len(cutting_timestamp) == len(cutting_texts), "The length of idex, start_times and cutting_timestamp must be the same."
 
-            # rttm type recording
-            #   start_time    end_time    speaker_id    utterance_id 
-            meeting_type = sample['meeting_type'][:3]
-            speaker_logging = os.path.join(args.output_dir, f'{iter:07d}_{meeting_type}.list')   
-            with open(speaker_logging, 'w', encoding='utf-8') as f_out: 
-                for id, start_time, timestamps, cutting_text in zip(idex, start_times, cutting_timestamp, cutting_texts):
+#             # rttm type recording
+#             #   start_time    end_time    speaker_id    utterance_id 
+#             meeting_type = sample['meeting_type'][:3]
+#             speaker_logging = os.path.join(args.output_dir, f'{iter:07d}_{meeting_type}.list')   
+#             with open(speaker_logging, 'w', encoding='utf-8') as f_out: 
+#                 for id, start_time, timestamps, cutting_text in zip(idex, start_times, cutting_timestamp, cutting_texts):
 
-                    cut_start, duration = timestamps
-                    if cut_start == -1:  # For multiple (greater than 2) overlaps, the utt is dropped off
-                        continue
-                    Transcription = sample['utt_list'][id]['Transcription'] if cutting_text == '<whole>' else cutting_text
+#                     cut_start, duration = timestamps
+#                     if cut_start == -1:  # For multiple (greater than 2) overlaps, the utt is dropped off
+#                         continue
+#                     Transcription = sample['utt_list'][id]['Transcription'] if cutting_text == '<whole>' else cutting_text
 
-                    speaker_id = sample['utt_list'][id]['speaker_id']
-                    utterance_id = sample['utt_list'][id]['path']
-                    if cutting_text == '<whole>':  assert duration == sample['utt_list'][id]['duration']
-                    f_out.write(f"{start_time:.3f} {start_time+duration:.3f} {speaker_id} {utterance_id} {cut_start:.3f} [{Transcription}]\n")
+#                     speaker_id = sample['utt_list'][id]['speaker_id']
+#                     utterance_id = sample['utt_list'][id]['path']
+#                     if cutting_text == '<whole>':  assert duration == sample['utt_list'][id]['duration']
+#                     f_out.write(f"{start_time:.3f} {start_time+duration:.3f} {speaker_id} {utterance_id} {cut_start:.3f} [{Transcription}]\n")
 
-            pbar.update(1)
-            iter += 1
+#             pbar.update(1)
+#             iter += 1
     

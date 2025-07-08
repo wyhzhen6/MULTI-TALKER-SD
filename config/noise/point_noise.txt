@@ -1,0 +1,11 @@
+coughing near
+sneezing near
+keyboard_typing near
+mouse_click near
+door_wood_knock far
+door_wood_creaks far
+clock_tick far
+water_drops near
+drinking_sipping near
+copy_machine far
+music near
