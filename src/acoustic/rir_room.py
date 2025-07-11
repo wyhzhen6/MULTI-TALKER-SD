@@ -36,15 +36,19 @@ class rir_room:
         self.filepath = filepath
         self.simulate_config = simulate_config
         
-        # load by simulate_config
         self.meeting_type = simulate_config['meeting_type']
         self.room_size = simulate_config['room_size']
+        self.room_size_mid = simulate_config['room_size_mid']
+        self.room_size_lar = simulate_config['room_size_lar']
         self.room_type = simulate_config['room_type']
         self.rt60 = simulate_config['rt60']
+        self.rt60_mid = simulate_config['rt60_mid']
+        self.rt60_lar = simulate_config['rt60_lar']
         self.fs = simulate_config.get('fs', 16000)
         self.is_compute_DRR = simulate_config['is_compute_DRR']
         self.is_compute_SRR = simulate_config['is_compute_SRR']
         self.mic_loc = simulate_config['mic_pos']
+        self.signal_gains_arr = simulate_config['signal_gains']
         
         self.speech_host_label = speech_host_label
 
@@ -65,23 +69,26 @@ class rir_room:
             air_absorption=True,
         )
 
-        # setting nosie parameters
-        self.d = 0.5        # min_src_dis
-        self.d_wall = round(random.uniform(0.5, 0.7), 2)
+        # setting distance parameters
+        self.d = 0.5        # min_dis
+        self.d_src = round(random.uniform(0.4, 0.5), 2) # min_src_dis
+        self.d_wall = round(random.uniform(0.45, 0.55), 2) # min_src_wall
+
+        # setting rir parameters
         self._generate_src_pra()
         self._create_mic()
         
-        # setting noise
+        # prepare noise type, path
         self._prepare_point_noise()
         
         # others
         self.max_attempts = 10000   # max_attempts for set speaker pos
         self.angles = []            # src_angles circle for `circle``
-        self.loc = []               # src_loc for `desk` and `speech`
+        self.loc = []               # src_loc
         self.DRR = []
         self.SRR = []
-        self.host_audio = []
-        self.gains = []
+        self.host_audio = []        # audio for merging host_audio, computing host_SRR
+        self.gains = []             # gains for speakers
         
         self.host_pos = []
         self.drr = 0
@@ -93,13 +100,6 @@ class rir_room:
         self.avg_snr = []
         
         
-        # # self.mic_center_loc = []
-        # self.noise_d = round(random.uniform(0.2,0.5), 2) #min_dis_to_src
-        # self.noise_loc = []
-        # self.SRR_circle = []
-        # self.SRR_linear = []
-        # 
-        # self.linear_array_distances = [0.15, 0.1, 0.05, 0.2, 0.05, 0.1, 0.15]
     
     def _prepare_point_noise(self):
         '''
@@ -126,8 +126,13 @@ class rir_room:
             category = row['category']
             self.category_files[category].append(filename)
 
-
+    
     def _read_listfile2(self, filename):
+        '''
+            load metadata
+            calculate speech duration
+            listdata: list[ dict {"start_time", "end_time", "label", "speaker", "path"} ]
+        '''
         with open(filename, "r") as f:
             lines = [line.strip() for line in f]
         
@@ -170,34 +175,62 @@ class rir_room:
         merged.append((current_start, current_end))
         self.vad_dur = sum(end - start for start, end in merged)
 
+    
     def _generate_room_pra(self, meeting_types):
+        '''
+            generate parameters for rir
+            rt60
+            room_size
+            e_absorption
+            max_order
+            meeting_type
+        '''
         if self.rt60 == None:
             if len(self.listdata)<20:
-                self.rt60 = round(random.uniform(0.2, 0.8), 2)
+                self.rt60 = round(random.uniform(self.rt60_mid[0], self.rt60_mid[1]), 2)
             else:
-                self.rt60 = round(random.uniform(0.2, 1), 2)
+                self.rt60 = round(random.uniform(self.rt60_lar[0], self.rt60_lar[1]), 2)
                 
         if self.room_size == None:
             if len(self.listdata) < 20:
-                self.room_size = [random.uniform(8,10), random.uniform(7,8), random.uniform(4,5)]
+                size_min = self.room_size_mid[0]
+                size_max = self.room_size_mid[1]
+                self.room_size = [random.uniform(size_min[0],size_max[0]), random.uniform(size_min[1],size_max[1]), random.uniform(size_min[2],size_max[2])]
                 self.room_type = "middle"
             else:
-                self.room_size = [random.uniform(10,12), random.uniform(8,10), random.uniform(5,6)]
+                size_min = self.room_size_lar[0]
+                size_max = self.room_size_lar[1]
+                self.room_size = [random.uniform(size_min[0],size_max[0]), random.uniform(size_min[1],size_max[1]), random.uniform(size_min[2],size_max[2])]
                 self.room_type = "large"
  
         if self.meeting_type == None:
             meeting_types = meeting_types if len(self.listdata) < 20 else [meeting_types[0], meeting_types[2]]
             self.meeting_type = random.choice(meeting_types)
 
+        #compute e_absorption, max_order
         self.e_absorption, self.max_order = pra.inverse_sabine(self.rt60,self.room_size)
 
-    #generate center radius width length
     def _generate_src_pra(self):
+        '''
+            generate parameters for different meeting_type
+            "circle":
+                src_center: middle of the room
+                max_radius: half of short side - min_distance to wall(0.5-0.7)
+                radius: randomly from 2 to max_radius
+                min_angle
+            "desk":
+                width: room_size[0]-2*self.d_wall
+                length: room_size[1]-self.d_wall
+            "speech":
+                src_center: middle of the audience area(room - host area)
+                max_radius: max radius for audience_pos
+
+        '''
         if self.meeting_type == "circle":
             self.src_center = [(self.room_size[0]-self.d_wall)/2,self.room_size[1]/2]
             self.max_radius = min(self.room_size[0]-self.d_wall,self.room_size[1])/2-self.d_wall
             self.radius = round(random.uniform(2,self.max_radius),3)
-            self.min_angle = 2 * math.asin(self.d_wall / (2 * self.radius))
+            self.min_angle = 2 * math.asin(self.d_src / (2 * self.radius))
         elif self.meeting_type == "desk":
             self.width = self.room_size[0]-2*self.d_wall
             self.length = self.room_size[1]-self.d_wall
@@ -206,20 +239,31 @@ class rir_room:
             self.max_radius = min(self.src_center[0],self.src_center[1])-self.d_wall
 
     def _create_mic(self):
+        '''
+            create microphone
+            mic_pos: middle of the room
+            mic_height: 
+                "circle": table(0.8 to 1)
+                "desk": table(0.8 to 1)
+                "speech": ceiling(room_height-1 to room_height-min_mic_dis)
+        '''
         if self.mic_loc == None:
-            mic_height =[round(random.uniform(0.8,1),2),round(random.uniform(self.room_size[2]-1,self.room_size[2]-self.d),2)] #desk,ceiling
+            mic_height =[round(random.uniform(0.8,1),2),round(random.uniform(self.room_size[2]-1,self.room_size[2]-self.d),2)] #table,ceiling
             if self.meeting_type == "circle":
-                mic_height = mic_height[0] #desk
+                mic_height = mic_height[0] #table
             elif self.meeting_type == "desk":
-                mic_height = mic_height[0] #desk
+                mic_height = mic_height[0] #table
             elif self.meeting_type == "speech":
                 mic_height = mic_height[1] #ceiling
 
             self.mic_loc = [self.room_size[0]/2, self.room_size[1]/2, mic_height]
         self.room.add_microphone(self.mic_loc)
 
-    
     def _set_host_label(self, host_label):
+        '''
+            set host for speech type
+            default: 1st label of listdata
+        '''
         if host_label is not None:
             index = next((item for item in self.listdata if item["label"] == host_label), None)
             if index is not None: 
@@ -231,11 +275,15 @@ class rir_room:
         self.speech_host_label = host_label
     
     def simulate(self, output_dir):
+        '''
+            rir simulate and save clean audio
+        '''
         filename = os.path.splitext(os.path.basename(self.filepath))[0]
         output_path_clean = os.path.join(output_dir, "clean", f"{filename}.wav")
         # if os.path.exists(output_path_clean):
-        #     return 
-        
+        #     return
+
+        # set host label
         if self.meeting_type == "speech":
             host_label = self.simulate_config.get('host_label', )
             self._set_host_label(host_label)
@@ -243,26 +291,36 @@ class rir_room:
         audio = []
         for index, item in enumerate(self.listdata):
             if item["label"] != self.speech_host_label:
+                # set src_pos
                 src_pos = self._set_pos()
+                # merge audio
                 signals = self._merge_audio(item)
 
-                signal_gain = random.uniform(1,5)
+                # set gain
+                signal_gain = random.uniform(self.signal_gains_arr[0],self.signal_gains_arr[1])
                 self.gains.append(signal_gain)
                 signals = self._set_gain(torch.from_numpy(signals), signal_gain).numpy()
+
+                # prepare audio for computing SRR
                 if self.is_compute_SRR:
                     audio.append(signals)
                 
+                # add source for rir room
                 self.room.add_source(src_pos, signal=signals, delay=item["start_time"][0])
+
+                # compute DRR
                 if self.is_compute_DRR:
                     self.DRR.append(self.compute_DRR(signals,self.fs))
-                    
+
+        # set host pos
         if self.meeting_type == "speech":
             item = next((item for item in self.listdata if item["label"] == self.speech_host_label), None)
             self.set_speech_host_pos(item)
         
+        # rir simulate
         self.room.simulate()
     
-    
+        # compute SRR
         if self.is_compute_SRR:
             for i in range(len(audio)):
                 rir1 = self.room.rir[0][i]
@@ -275,7 +333,7 @@ class rir_room:
                     rir1 = self.room.rir[0][index2+len(audio)] 
                     host_srr.append(self.compute_SRR(audio_host,rir1,self.fs))
                 self.SRR.append(np.mean(host_srr))    
-        self.SRR = np.mean(self.SRR)
+            self.SRR = np.mean(self.SRR)
 
         if self.is_compute_DRR:
             self.drr = np.mean(self.DRR)
@@ -290,7 +348,13 @@ class rir_room:
         )
     
     def set_speech_host_pos(self,listdata,split_size=100):
-
+        '''
+            set host moving pos 
+            host moves to next pos after several signals 
+            src_height: randomly from 1.6 to 1.8
+            start_pos: start_pos of moving
+            end_pos: end_pos of moving
+        '''
         src_height = round(random.uniform(1.6,1.8),2)
 
 
@@ -304,18 +368,19 @@ class rir_room:
         unit_vec = (start_pos - end_pos) / dist_total
         
         num_points = int(math.sqrt(len(listdata["start_time"])))
-        # print(f"len of moving point: {num_points}")
-
+        
+        # compute each point_pos
         alphas = np.linspace(0, 1, num_points)
         pos_src = np.array([start_pos + alpha * (end_pos - start_pos) for alpha in alphas])
         pos_src = [start_pos + alpha * (end_pos - start_pos) for alpha in alphas]
 
         host_DRR = []
-        signal_gain = random.uniform(1,5)
+        signal_gain = random.uniform(self.signal_gains_arr[0],self.signal_gains_arr[1])
         self.gains.append(signal_gain)
 
         file_paths = listdata["file_path"]
 
+        # compute signal_num for each point
         avg = len(listdata["start_time"]) // num_points
         remainder = len(listdata["start_time"]) % num_points
         start_index = 0
@@ -341,6 +406,7 @@ class rir_room:
                 if index == 0:
                     final_audio = audio
                 else:
+                    # merge audio
                     start = listdata["start_time"][start_index + index]
                     tmp = round((start-end_time)*self.fs)
                     audio_pad = np.pad(audio, (tmp, 0), mode='constant')
@@ -365,7 +431,9 @@ class rir_room:
     
 
     def _merge_audio(self, listdata):
-
+        '''
+            merge signals for one src
+        '''
         file_paths = listdata["file_path"]
         start_time = 0
         
@@ -382,7 +450,7 @@ class rir_room:
             ed_time = int(listdata["end_time"][index] * self.fs)
             audio = audio[:ed_time-st_time]
             
-            print
+            # print
             if index == 0:
                 final_audio = audio
             else:
@@ -399,6 +467,9 @@ class rir_room:
     
 
     def _set_pos(self):
+        '''
+            set src pos for different meeting type
+        '''
         if self.meeting_type == 'circle':
             return self._set_pos_circle()
         elif self.meeting_type == 'desk':
@@ -407,7 +478,9 @@ class rir_room:
             return self._set_pos_speech()
 
     def _set_pos_circle(self):
-        
+        '''
+            set src pos for "circle" meeting type
+        '''
         attempts = 0
         valid = True
         src_height = round(random.uniform(1.2, 1.4),3)
@@ -430,6 +503,9 @@ class rir_room:
         return [x,y,src_height]
 
     def _set_pos_table(self):
+        '''
+            set src pos for "desk" meeting type
+        '''
         src_height = round(random.uniform(1.2, 1.4), 3)
 
         def top_edge(): return (round(random.uniform(self.d_wall, self.width), 2), self.length)
@@ -460,6 +536,9 @@ class rir_room:
         return [x, y, src_height]
 
     def _set_pos_speech(self):
+        '''
+            set audience pos for "speech" meeting type
+        '''
         src_height = round(random.uniform(1.2, 1.4), 3)
 
         attempts = 0
@@ -489,7 +568,13 @@ class rir_room:
         # print(f"[Warning] Forced speech source placement at ({x:.2f}, {y:.2f}) after {attempts} attempts.")
         return [x, y, src_height]
 
-    def _set_gain(self, signal, target_db, reference_pressure=20e-6):
+    def _set_gain(self, signal, target_db):
+        '''
+            set signal gain
+            signal: The input audio signal (Tensor)
+            target_db: target gain
+            return: target audio signal (Tensor)
+        '''
 
         def compute_rms(wav):
             return torch.sqrt(torch.mean(wav**2) + 1e-8)
@@ -512,9 +597,11 @@ class rir_room:
     def resample(self,y, original_sample_rate, target_sample_rate: int = 16_000):
         return signal.resample(y, int(len(y) * target_sample_rate / original_sample_rate))
 
-    def gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
-        
-        self.room_for_noise = pra.ShoeBox(
+    def point_noise_simulate(self,noise,start,noise_list):
+        '''
+            simulate each point noise
+        '''
+        room_for_noise = pra.ShoeBox(
             self.room_size,
             fs=self.fs,
             materials=pra.Material(self.e_absorption),
@@ -523,7 +610,59 @@ class rir_room:
             air_absorption=True,
         )
 
-        self.room_for_noise.add_microphone(self.mic_loc)
+        room_for_noise.add_microphone(self.mic_loc)
+
+        noise_height = round(random.uniform(1.2,1.4),3)
+
+        #pos
+        if noise_list[1] == 'near':
+            center = self.loc[random.randint(0,len(self.loc)-1)]
+            r = random.uniform(0.1,0.35)
+            theta = random.uniform(0, 2 * math.pi)
+            x = center[0] + r * math.cos(theta)
+            y = center[1] + r * math.sin(theta)
+
+            noise_pos = [x,y,noise_height]
+
+
+        elif noise_list[1] == 'far':
+            width = self.room_size[0]-2*self.d
+            length = self.room_size[1]-self.d
+            def top_edge():
+                return (round(random.uniform(self.d, width),2), length)
+                
+            def bottom_edge():
+                return (round(random.uniform(self.d, width),2), self.d)
+                
+            def left_edge():
+                return (self.d, round(random.uniform(self.d, length),2))
+            
+            edges = [top_edge, bottom_edge, left_edge]
+            random.shuffle(edges)
+
+            for edge in edges:
+                x,y = edge()
+                break
+
+            noise_pos  = [x,y,noise_height]
+
+        
+        tmp = 5*self.fs
+        if noise_list[0] == 'music':
+            room_for_noise.add_source(noise_pos, signal=noise[tmp:tmp+min(tmp,len(noise))], delay = start)
+        else:
+            room_for_noise.add_source(noise_pos, signal=noise[:min(tmp,len(noise))], delay = start)
+
+        room_for_noise.simulate()
+        
+        return room_for_noise.mic_array.signals
+
+    def gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
+        '''
+            gen final point noise audio
+            gen intervals between each point noise
+            merge point noise audio
+        '''
 
         if max_segments == None:
             max_segments = int(self.audio_len/16)
@@ -550,57 +689,27 @@ class rir_room:
             start = time_cursor + interval[i]
             end = start + dur
             self.point_noise_time += dur
-            if end > self.audio_len:
+            if end > self.audio_len or i == point-1:
                 # print(f"add {noise_num} point noise")
                 break  
             time_cursor = end
 
-            noise_height = round(random.uniform(1.2,1.4),3)
+            point_noise_audio = self.point_noise_simulate(noise,interval[i],noise_list)
 
-            #pos
-            if noise_list[1] == 'near':
-                center = self.loc[random.randint(0,len(self.loc)-1)]
-                r = random.uniform(0.1,0.5)
-                theta = random.uniform(0, 2 * math.pi)
-                x = center[0] + r * math.cos(theta)
-                y = center[1] + r * math.sin(theta)
-
-                noise_pos = [x,y,noise_height]
-
-
-            elif noise_list[1] == 'far':
-                width = self.room_size[0]-2*self.d
-                length = self.room_size[1]-self.d
-                def top_edge():
-                    return (round(random.uniform(self.d, width),2), length)
-                    
-                def bottom_edge():
-                    return (round(random.uniform(self.d, width),2), self.d)
-                    
-                def left_edge():
-                    return (self.d, round(random.uniform(self.d, length),2))
-                
-                edges = [top_edge, bottom_edge, left_edge]
-                random.shuffle(edges)
-
-                for edge in edges:
-                    x,y = edge()
-                    break
-
-                noise_pos  = [x,y,noise_height]
-                
-            if noise_list[0] == 'music':
-                tmp = 5*self.fs
-                self.room_for_noise.add_source(noise_pos, signal=noise[tmp:tmp+min(tmp,len(noise))], delay = start)
-                
+            tmp = interval[i]*self.fs
+            if i == 0:
+                final_point_noise_audio = point_noise_audio
             else:
-                self.room_for_noise.add_source(noise_pos, signal=noise[:min(5* self.fs,len(noise))], delay = start)
-            noise_num+=1
+                final_point_noise_audio = np.concatenate([final_point_noise_audio, point_noise_audio],axis = 1)
 
-        self.room_for_noise.simulate()
-        return self.room_for_noise.mic_array.signals
+            noise_num+=1
+            
+        return final_point_noise_audio
 
     def compute_DRR(self,h, fs, t_direct_ms=5):
+        '''
+            compute DRR
+        '''
         t_direct = int(fs * t_direct_ms / 1000)
         peak_idx = np.argmax(np.abs(h))
         direct_part = h[peak_idx : peak_idx + t_direct]
@@ -612,6 +721,9 @@ class rir_room:
         return drr_db
     
     def compute_SRR(self,s, h, fs, t_early_ms=50):
+        '''
+            compute SRR
+        '''
         h_early = np.copy(h)
         h_late = np.copy(h)
         t_early = int(fs * t_early_ms / 1000)
@@ -629,13 +741,14 @@ class rir_room:
     
 
     def _add_noise(self,speech_sig, vad_duration, point_noise,diffuse_noise, SNR_point,SNR_diffuse):
-        """add noise to the audio.
-        :param speech_sig: The input audio signal (Tensor).
-        :param vad_duration: The length of the human voice (int).
-        :param noise_sig: The input noise signal (Tensor).
-        :param snr: the SNR you want to add (int).
-        :returns: noisy speech sig with specific snr.
-        """
+        '''
+            add noise to the audio.
+            speech_sig: The input audio signal (Tensor).
+            vad_duration: The length of the human voice (int).
+            noise_sig: The input noise signal (Tensor).
+            snr: the SNR you want to add (int).
+            returns: noisy speech sig with specific snr.
+        '''
 
         if vad_duration != 0:
             snr1 = 10**(SNR_point/10.0)
@@ -656,12 +769,16 @@ class rir_room:
             
             
             def adjust_noise_length(noise, target_length):
+                '''
+                    adjust_noise_length
+                '''
                 if target_length > noise.shape[0]:
+                    # repeat
                     repeat_times = int(np.ceil(target_length / noise.shape[0]))
                     repeated_noise = noise.repeat(repeat_times+1,1)
                     return repeated_noise[:target_length,:]
                 else:
-                    
+                    # cut
                     return noise[ :target_length,:]
                 
             point_noise_sig = adjust_noise_length(point_update, speech_sig.shape[0])
@@ -679,8 +796,14 @@ class rir_room:
                   point_noise_path: str, 
                   diffuse_noise_path: str
                   ):
+        '''
+            add noise to clean audio
+        '''
+
         SNR_point = self.simulate_config.get('SNR_point', )
-        SNR_diffuse = self.simulate_config.get('SNR_diffuse', )    
+        SNR_point_arr = self.simulate_config.get('SNR_point_arr', )
+        SNR_diffuse = self.simulate_config.get('SNR_diffuse', )  
+        SNR_diffuse_arr = self.simulate_config.get('SNR_diffuse_arr', )    
         
         
         filename = os.path.splitext(os.path.basename(self.filepath))[0]
@@ -700,11 +823,11 @@ class rir_room:
         
         diffuse_noise = diffuse_noise[:,np.newaxis]
         if SNR_point == None:
-            SNR_point = random.randint(8,17)
+            SNR_point = random.randint(SNR_point_arr[0],SNR_point_arr[1])
         self.SNR_point = SNR_point
 
         if SNR_diffuse == None:
-            SNR_diffuse = random.randint(13,25)
+            SNR_diffuse = random.randint(SNR_diffuse_arr[0],SNR_diffuse_arr[1])
         self.SNR_diffuse = SNR_diffuse
 
 
@@ -724,7 +847,6 @@ class rir_room:
             self.fs,                   
             subtype="PCM_16"      
         )
-
 
 
 
