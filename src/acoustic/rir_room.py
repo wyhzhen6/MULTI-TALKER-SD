@@ -337,7 +337,7 @@ class rir_room:
                     host_srr.append(self.compute_SRR(audio_host,rir1,self.fs))
                     host_drr.append(self.compute_DRR(rir1,self.fs))
                 self.SRR.append(np.mean(host_srr))    
-                self.DRR.append(np.mean(host_drr)
+                self.DRR.append(np.mean(host_drr))
             self.SRR = np.mean(self.SRR)
 
         if self.is_compute_DRR:
