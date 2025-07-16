@@ -92,6 +92,7 @@ class rir_room:
         
         self.host_pos = []
         self.drr = 0
+        self.srr = 0
         
         # nosie
         self.SNR_point = 0
@@ -325,14 +326,18 @@ class rir_room:
             for i in range(len(audio)):
                 rir1 = self.room.rir[0][i]
                 self.SRR.append(self.compute_SRR(audio[i],rir1, self.fs))
+                self.DRR.append(self.compute_DRR(rir1,self.fs))
 
             if self.meeting_type == "speech":
                 item = next((item for item in self.listdata if item["label"] == self.speech_host_label), None)
                 host_srr = []
+                host_drr = []
                 for index2, audio_host in enumerate(self.host_audio):
                     rir1 = self.room.rir[0][index2+len(audio)] 
                     host_srr.append(self.compute_SRR(audio_host,rir1,self.fs))
+                    host_drr.append(self.compute_DRR(rir1,self.fs))
                 self.SRR.append(np.mean(host_srr))    
+                self.DRR.append(np.mean(host_drr)
             self.SRR = np.mean(self.SRR)
 
         if self.is_compute_DRR:
@@ -374,7 +379,7 @@ class rir_room:
         pos_src = np.array([start_pos + alpha * (end_pos - start_pos) for alpha in alphas])
         pos_src = [start_pos + alpha * (end_pos - start_pos) for alpha in alphas]
 
-        host_DRR = []
+        #host_DRR = []
         signal_gain = random.uniform(self.signal_gains_arr[0],self.signal_gains_arr[1])
         self.gains.append(signal_gain)
 
@@ -420,14 +425,14 @@ class rir_room:
             self.host_audio.append(final_audio)
             delay=listdata["start_time"][start_index]
             self.room.add_source(src_pos, signal=final_audio, delay=delay)
-            if self.is_compute_DRR:
-                host_DRR.append(self.compute_DRR(final_audio,self.fs))
+            #if self.is_compute_DRR:
+            #    host_DRR.append(self.compute_DRR(final_audio,self.fs))
             start_index += chunks
 
 
-        if self.is_compute_DRR:
+        #if self.is_compute_DRR:
             #print("host_DRR:",np.mean(host_DRR))    
-            self.DRR.append(np.mean(host_DRR))
+            #self.DRR.append(np.mean(host_DRR))
     
 
     def _merge_audio(self, listdata):
