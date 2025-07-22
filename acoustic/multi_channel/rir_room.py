@@ -1164,7 +1164,7 @@ if __name__ == '__main__':
     
     import yaml
     config = yaml.safe_load(open("/data/zjj/rir/rir_test/script_test/config.yaml", 'r'))
-    simulate_config = config["simulate_config"]
+    simulate_config = config["multi_channel_simulate_config"]
     random.seed(42)
     room = rir_room(
         filepath = "/data/zjj/rir/rir_single/list/0000057.list",
