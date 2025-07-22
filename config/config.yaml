@@ -76,3 +76,32 @@ simulate_config:
   is_compute_DRR: false   # if compute DRR
   is_compute_SRR: false   # if compute SRR
 
+multi_channel_simulate_config:
+  point_noise_csv: "/data/zjj/rir/esc50/noise.csv"
+  point_noise_type: "/data/zjj/rir/esc50/point_noise.txt"
+  fs: 16000 
+  rt60:  0.5
+  rt60_mid:  [0.5, 0.8]   # min, max rt60 of middle room
+  rt60_lar:  [0.5, 1]     # min, max rt60 of large room
+  max_order: null
+  room_size:  null
+  room_size_mid:  [[8,7,4], [10,8,5]]  # min, max size of middle room(speaker < 20)
+  room_size_lar:  [[10,8,4], [12,10,5]]  # min, max size of large room(speaker >= 20)
+  room_type:  null    # middle, large
+  meeting_type:  null   # desk, circle, speech
+  mic_center_pos: null   # 
+  mic_num: null   # mic num of mic array
+  mic_num_arr:  [4,6]   # min, max mic num of mic array
+  array_num: null   # circle array num, default: 1 in middle room, 2 in large room
+  mic_radius: null    # mic radius of circle mic array
+  mic_radius_arr:  [0.0425,0.05]    # min, max mic radius of circle mic array
+  linear_array_mic_num: 8   # mic num of linear array, default: 8
+  linear_array_distances: [0.15,0.1,0.05,0.2,0.05,0.1,0.15]   # intervals for each mic of linear mic array
+  host_label: null  # set moving host of speech scene
+  signal_gains: [1,5] # min, max gain for src_signal
+  SNR_point : 10
+  SNR_point_arr : [5,8]  # min, max snr of point noise
+  SNR_diffuse: 10
+  SNR_diffuse_arr: [6,10]  # min, max snr of diffuse noise
+  is_compute_DRR: true   # if compute DRR
+  is_compute_SRR: true   # if compute SRR
