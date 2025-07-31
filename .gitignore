@@ -1,0 +1,77 @@
+# ===================== #
+# Python / Project Ignore
+# ===================== #
+
+# Ignore experiment and dataset directories
+metadata/
+noise_dataset/
+exp/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.env/
+.venv/
+*.env
+*.venv
+
+# Logs
+logs/
+*.log
+
+# Temp files
+*.tmp
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# ===================== #
+# Git / Large Files
+# ===================== #
+
+# Ignore all nested git repos (submodules)
+*/.git/
+
+# Ignore large model/cache folders
+cache/
+checkpoints/
+output/
+models/
+runs/
+
+# Ignore audio and model weights (>50MB)
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.onnx
+*.wav
+*.flac
+*.mp3
+
+# Large datasets
+*.tgz
+*.tar.gz
+*.zip
+*.7z
+*.rar
+data/
+script/data/
+cache/
+
+# ===================== #
+# IDE / Editor
+# ===================== #
+
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db

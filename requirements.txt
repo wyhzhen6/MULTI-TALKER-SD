@@ -1,0 +1,9 @@
+faster_whisper==1.1.1
+soundfile
+tqdm
+torch
+torchaudio
+pandas
+matplotlib
+scipy
+pyroomacoustics

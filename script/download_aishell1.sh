@@ -34,7 +34,7 @@ download_and_extract() {
 }
 
 for file in "${FILES[@]}"; do
-  download_and_extract "$file" &
+  # download_and_extract "$file" &
   ((job_count++))
   if (( job_count >= MAX_JOBS )); then
     wait -n
@@ -45,10 +45,10 @@ done
 wait
 echo "🎉 AISHELL-1 数据集下载并解压完成。目录：$(pwd)"
 
-
-find "$TARGET_DIR"/data_aishell/wav -maxdepth 1 -type f -name "*.tar.gz" | while read -r file; do
+find "data_aishell/wav" -maxdepth 1 -type f -name "*.tar.gz" | while read -r file; do
   echo "解压: $file"
-  tar -xzvf "$file" -C "$TARGET_DIR"/data_aishell/wav
+  tar -xzvf "$file" -C "data_aishell/wav"
 done
+
 
 

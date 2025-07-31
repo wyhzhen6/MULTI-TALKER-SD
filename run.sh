@@ -1,5 +1,4 @@
 #!/bin/bash
-
 # set -eou pipefail
 log() {
   	# This function is from espnet
@@ -12,9 +11,11 @@ stop_stage=3
 
 
 # ================= Fill in according to actual =================
-exp_dir=exp/exp2				# where .wav to store
-librispeech_dir=!		# 
-aishell_1_dir=!			# Usually named data_aishell
+exp_dir=exp/exp1				# where .wav to store
+librispeech_dir=/home3/yihao/Research/Code/Large-scale-diarization-dataset/script/data/LibriSpeech		# 
+aishell_1_dir=/home3/yihao/Research/Code/Large-scale-diarization-dataset/script/data/AISHELL-1			# Usually named data_aishell
+point_noise_path=/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/point_noise 
+diffuse_noise_path=/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/diffuse_noise 
 mkdir -p $exp_dir
 
 
@@ -63,7 +64,7 @@ fi
 
 
 # subsets=(test)
-subsets=(train dev)
+subsets=(test)
 # ============================ speaker logging ============================ #
 # conda activate whisperX
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
@@ -85,13 +86,14 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 
 		log "Speaker logging: set ranking, silence, and overlap"
 		samples_nums=$((`cat $subset_dir/utterance_id.list | wc -l`))
+		log "samples_nums: $samples_nums"
 		python src/speaker_log/get_rank.py \
 				--utterance_id $subset_dir/utterance_id.list \
 				--output_dir $subset_dir/samples \
 				--samples_nums $samples_nums \
 				--config config/config.yaml \
-				--gpus 0 1 2 3 4 5 6 7 \
-				--workers 8 \
+				--gpus 0 1 2 3 \
+				--workers 4\
 				--cutting_type whisper  	# direct_truncation
 	done
 fi
@@ -104,29 +106,22 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
 		subset_dir=$exp_dir/$subset
 		mkdir -p $subset_dir/wavs
 
-		python src/acoustic/simulate.py \
+		log "Acoustic simulate"
+		python src/acoustic/multichannel_simulate.py \
 				--config config/config.yaml \
 				--logging_list $subset_dir/samples \
 				--output_dir $subset_dir/wavs \
-				--point_noise_path XXXXX \
-				--diffuse_noise_path XXXXXX \
-				--num_workers 10
+				--point_noise_path $point_noise_path \
+				--diffuse_noise_path $diffuse_noise_path \
+				--num_workers 4
+		
+		# python src/acoustic/simulate.py \
+		# 		--config config/config.yaml \
+		# 		--logging_list $subset_dir/samples \
+		# 		--output_dir $subset_dir/wavs \
+		# 		--point_noise_path $point_noise_path \
+		# 		--diffuse_noise_path $diffuse_noise_path \
+		# 		--num_workers 4
 	done
-	cp config/config.yaml $subset_dir
+	#cp config/config.yaml $subset_dir
 fi
-
-# subsets=(train test dev)
-# if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
-# 	for subset in "${subsets[@]}"; do
-# 		subset_dir=metadata/$subset
-# 		mkdir -p $subset_dir/wavs
-# 		ls $subset_dir/samples | while read line; do
-# 			log "Processing ${line}"
-# 			python src/speaker_log/create_wav.py \
-# 				--logging_file $subset_dir/samples/${line} \
-# 				--output_dir $subset_dir/wavs 
-# 		done
-# 		mv $subset_dir/wavs $exp_dir
-# 		mv $subset_dir/samples $exp_dir
-# 		cp config.yaml $exp_dir
-# fi

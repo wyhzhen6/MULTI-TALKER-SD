@@ -57,7 +57,6 @@ def rir_simulate(simulate_config, args):
     chunks = [lines[i * chunk_size:(i + 1) * chunk_size] for i in range(num_workers)]
     
     manager = Manager()
-    return_list = manager.list()
     counter = Value('i', 0)
     
     
@@ -93,10 +92,6 @@ def rir_simulate(simulate_config, args):
         p.join()
 
 
-
-
-
-
 if __name__ == "__main__":
 
     parser=argparse.ArgumentParser(
@@ -107,6 +102,7 @@ if __name__ == "__main__":
     
     
     parser.add_argument('-c', '--config', type=str, help='configuration')
+    parser.add_argument('--channels',type=str,choices=['mono', 'multi'],default='mono',help='Choose to generate single channel (mono) or multi channel (multi)')
     parser.add_argument('--logging_list', type=str, help='configuration')
     parser.add_argument('--point_noise_path', type=str, help='')
     parser.add_argument('--diffuse_noise_path', type=str, help='')

@@ -323,9 +323,6 @@ def interview_meeting(utt_list, conf, split_num, pipeline):
 
 
 
-
-
-
 def init_pipeline(args, config, gpu_id):
     if args.cutting_type == 'pyannote_vad':
         from pyannote.audio.pipelines import VoiceActivityDetection
@@ -342,16 +339,17 @@ def init_pipeline(args, config, gpu_id):
         from faster_whisper import WhisperModel
         pipeline = WhisperModel(config['whisper_model'], \
             device='cuda', device_index=[int(gpu_id)],\
-            compute_type="float16", download_root=config['whisper_model_path'])
+            compute_type="float16")
+        #   download_root=config['whisper_model_path']
     else:
         pipeline = None
     return {'pipline': pipeline, 'type': args.cutting_type, 'cutting_max_length': config['cutting_max_length']}
 
-
-
 def process_batch(batch_lines, args, config, gpu_id, process_idx, counter, lock):
+    import os
     pipeline = init_pipeline(args, config, gpu_id)
-    print(f"{process_idx}: start")
+    #print(f"[Process {process_idx}] Spawned. PID={os.getpid()}, GPU={gpu_id}", flush=True)
+
     for iter, line in enumerate(batch_lines):
         line = line.strip()
         if not line:
@@ -380,10 +378,19 @@ def process_batch(batch_lines, args, config, gpu_id, process_idx, counter, lock)
             utterance_id = sample['utt_list'][id]['path']
             if cutting_text == '<whole>':
                 assert duration == sample['utt_list'][id]['duration']
-            output_lines.append(f"{start_time:.3f} {start_time+duration:.3f} {speaker_id} {utterance_id} {cut_start:.3f} [{Transcription}]\n")
-            
-        with lock:
-            counter.value += 1
+            output_lines.append(
+                f"{start_time:.3f} {start_time+duration:.3f} {speaker_id} {utterance_id} {cut_start:.3f} [{Transcription}]\n"
+            )
+
+        # 更新进度
+        try:
+            with lock:
+                counter.value += 1
+                val = counter.value
+        finally:
+            # 确保锁一定被释放
+            pass
+
 
         # 写文件
         os.makedirs(args.output_dir, exist_ok=True)
@@ -393,9 +400,55 @@ def process_batch(batch_lines, args, config, gpu_id, process_idx, counter, lock)
 
     return f"Process {process_idx} finished."
 
+# def process_batch(batch_lines, args, config, gpu_id, process_idx, counter, lock):
+#     pipeline = init_pipeline(args, config, gpu_id)
+#     print(f"[Process {process_idx}] Spawned. PID={os.getpid()}, GPU={gpu_id}")
+#     for iter, line in enumerate(batch_lines):
+#         line = line.strip()
+#         if not line:
+#             continue
+#         sample = json.loads(line)
+#         print(f"1")
 
+#         if sample['meeting_type'] == 'presentation':
+#             idex, res = presentation_meeting(sample['utt_list'], config['meeting']['presentation'], sample['split_num'], pipeline)
+#         elif sample['meeting_type'] == 'interview':
+#             idex, res = interview_meeting(sample['utt_list'], config['meeting']['interview'], sample['split_num'], pipeline)
+#         elif sample['meeting_type'] == 'discussion':
+#             idex, res = discussion_meeting(sample['utt_list'], config['meeting']['discussion'], pipeline)
+#         else:
+#             continue
+#         print(f"2")
 
+#         start_times, cutting_timestamp, cutting_texts = res
 
+#         output_lines = []
+#         meeting_type = sample['meeting_type'][:3]
+#         for id, start_time, timestamps, cutting_text in zip(idex, start_times, cutting_timestamp, cutting_texts):
+#             cut_start, duration = timestamps
+#             if cut_start == -1:
+#                 continue
+#             Transcription = sample['utt_list'][id]['Transcription'] if cutting_text == '<whole>' else cutting_text
+#             speaker_id = sample['utt_list'][id]['speaker_id']
+#             utterance_id = sample['utt_list'][id]['path']
+#             if cutting_text == '<whole>':
+#                 assert duration == sample['utt_list'][id]['duration']
+#             output_lines.append(f"{start_time:.3f} {start_time+duration:.3f} {speaker_id} {utterance_id} {cut_start:.3f} [{Transcription}]\n")
+#         print(f"{start_time:.3f} {start_time+duration:.3f} {speaker_id} {utterance_id} {cut_start:.3f} [{Transcription}]\n")
+            
+#         with lock:
+#             counter.value += 1
+#             if counter.value % 5 == 0:
+#                 print(f"[Process {process_idx}] Progress: {counter.value}/{args.samples_nums}")
+
+#         # 写文件
+#         os.makedirs(args.output_dir, exist_ok=True)
+#         speaker_logging = os.path.join(args.output_dir, f'{process_idx:02d}_{iter:05d}_{meeting_type}.list')
+#         with open(speaker_logging, 'w', encoding='utf-8') as f_out:
+#             f_out.writelines(output_lines)
+#         print(f"[Process {process_idx}] Finished sample {iter}, took {time.time()-t0:.2f}s, wrote {len(output_lines)} lines.")
+
+#     return f"Process {process_idx} finished."
 
 if __name__ == '__main__':
     
@@ -408,7 +461,7 @@ if __name__ == '__main__':
     num_processes = args.workers
     batch_size = len(all_lines) // num_processes + 1
     batches = [all_lines[i*batch_size:(i+1)*batch_size] for i in range(num_processes)]
-    
+    print(f"[Main] Total {len(all_lines)} samples, split into {num_processes} processes, batch size {batch_size}")
     
     manager = mp.Manager()
     progress_counter = manager.Value('i', 0) 
@@ -438,6 +491,7 @@ if __name__ == '__main__':
     pool = mp.get_context('spawn').Pool(processes=num_processes)
     results = []
     for i in range(num_processes):
+        print(f"[Main] Submitting batch {i} with {len(batches[i])} lines to GPU {args.gpus[i % len(args.gpus)]}")
         results.append(pool.apply_async(
             process_batch,
             args=(batches[i], args, config, args.gpus[i%len(args.gpus)], i, progress_counter, lock)

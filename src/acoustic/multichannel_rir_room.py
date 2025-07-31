@@ -27,7 +27,7 @@ from scipy.signal import convolve
 from collections import defaultdict
 
 
-class rir_room:
+class multichannel_rir_room:
     def __init__(self, 
                 filepath,
                 *,
@@ -79,7 +79,7 @@ class rir_room:
         )
         
         # setting distance parameters
-        self.d = 0.5        # min_dis
+        self.d = 0.3        # min_dis
         self.d_src = round(random.uniform(0.4, 0.5), 2) # min_src_dis
         self.d_wall = round(random.uniform(0.45, 0.55), 2) # min_src_wall
 
@@ -94,7 +94,7 @@ class rir_room:
         self._prepare_point_noise()
 
         # others
-        self.max_attempts = 10000
+        self.max_attempts = 10000   # max_attempts for set speaker pos
         self.angles = []
         self.loc = []
         self.DRR = []
@@ -381,7 +381,6 @@ class rir_room:
 
         # set host label
         if self.meeting_type == "speech":
-            print("speech")
             host_label = self.simulate_config.get('host_label', )
             self._set_host_label(host_label)
 
@@ -407,7 +406,7 @@ class rir_room:
                 
                 '''if room.is_compute_DRR:
                     #compute DRR
-                    room.DRR.append(room.compute_DRR(signals,room.fs))'''
+                    room.DRR.append(room._compute_DRR(signals,room.fs))'''
         
         if self.meeting_type == "speech":
             item = next((item for item in self.listdata if item["label"] == self.speech_host_label), None)
@@ -421,16 +420,16 @@ class rir_room:
             for i in range(len(audio)):
                 rir1 = self.room.rir[0][i]
                 rir2 = self.room.rir[len(self.room.rir)-1][i]
-                self.SRR_circle.append(self.compute_SRR(audio[i],rir1,self.fs))
-                self.SRR_linear.append(self.compute_SRR(audio[i],rir2,self.fs))
+                self.SRR_circle.append(self._compute_SRR(audio[i],rir1,self.fs))
+                self.SRR_linear.append(self._compute_SRR(audio[i],rir2,self.fs))
 
-                self.DRR_circle.append(self.compute_DRR(rir1,self.fs))
-                self.SRR_linear.append(self.compute_DRR(rir2,self.fs))
+                self.DRR_circle.append(self._compute_DRR(rir1,self.fs))
+                self.DRR_linear.append(self._compute_DRR(rir2,self.fs))
 
                 if self.array_num == 2:
                     rir3 = self.room.rir[self.mic_num+1][i]
-                    self.SRR_circle2.append(self.compute_SRR(audio[i],rir3,self.fs))
-                    self.DRR_circle2.append(self.compute_DRR(rir3,self.fs))
+                    self.SRR_circle2.append(self._compute_SRR(audio[i],rir3,self.fs))
+                    self.DRR_circle2.append(self._compute_DRR(rir3,self.fs))
 
             if self.meeting_type == "speech":
                 
@@ -448,16 +447,16 @@ class rir_room:
                     rir1 = self.room.rir[0][index2+len(audio)] 
                     rir_linear = self.room.rir[len(self.room.rir)-1][index2 + len(audio)]
 
-                    host_srr_circle.append(self.compute_SRR(audio_host,rir1,self.fs))
-                    host_srr_linear.append(self.compute_SRR(audio_host,rir_linear,self.fs))
+                    host_srr_circle.append(self._compute_SRR(audio_host,rir1,self.fs))
+                    host_srr_linear.append(self._compute_SRR(audio_host,rir_linear,self.fs))
                     
-                    host_drr_circle.append(self.compute_DRR(rir1,self.fs))
-                    host_drr_linear.append(self.compute_DRR(rir_linear,self.fs))
+                    host_drr_circle.append(self._compute_DRR(rir1,self.fs))
+                    host_drr_linear.append(self._compute_DRR(rir_linear,self.fs))
 
                     if self.array_num == 2:
                         rir2 = self.room.rir[self.mic_num+1][index2+len(audio)]
-                        host_srr_circle2.append(self.compute_SRR(audio_host,rir2,self.fs))
-                        host_drr_circle2.append(self.compute_DRR(rir2,self.fs))
+                        host_srr_circle2.append(self._compute_SRR(audio_host,rir2,self.fs))
+                        host_drr_circle2.append(self._compute_DRR(rir2,self.fs))
                 
                 self.SRR_circle.append(np.mean(host_srr_circle))
                 self.SRR_linear.append(np.mean(host_srr_linear))
@@ -496,24 +495,22 @@ class rir_room:
 
             self.drr = np.mean(self.DRR)
         
-        #save clean audio
-        arraynum = 0
-        filename = os.path.splitext(os.path.basename(self.filepath))[0]
-    
-        #os.makedirs(os.path.join(output_dir,"clean"))
-        #os.makedirs(os.path.join(output_dir,"noisy"))
+        # #save reverb audio
+        # arraynum = 0
+        # filename = os.path.splitext(os.path.basename(self.filepath))[0]
+        # os.makedirs(os.path.join(output_dir,"reverb"))
 
-        for i in range(len(self.mic_loc)):
-            array_signal = self.room.mic_array.signals[arraynum : arraynum + len(self.mic_loc[i][1])]
-            arraynum += len(self.mic_loc[i][1])
+        # for i in range(len(self.mic_loc)):
+        #     array_signal = self.room.mic_array.signals[arraynum : arraynum + len(self.mic_loc[i][1])]
+        #     arraynum += len(self.mic_loc[i][1])
             
-            output_path_clean = os.path.join(output_dir,"clean", f"array_{i+1}_clean_signal.wav")
-            sf.write(
-                output_path_clean,  
-                array_signal.T,         
-                self.fs,                   
-                subtype="PCM_16"     
-            )
+        #     output_path_clean = os.path.join(output_dir,"reverb", f"{filename}_array_{i+1}_reverb.wav")
+        #     sf.write(
+        #         output_path_clean,  
+        #         array_signal.T,         
+        #         self.fs,                   
+        #         subtype="PCM_16"     
+        #     )
             
     def set_speech_host_pos(self,listdata,split_size=100):
         '''
@@ -531,9 +528,6 @@ class rir_room:
 
         start_pos = np.array(start_pos)
         end_pos = np.array(end_pos)
-
-        dist_total = norm(start_pos - end_pos)
-        unit_vec = (start_pos - end_pos) / dist_total
         
         num_points = int(math.sqrt(len(listdata["start_time"])))
         
@@ -567,9 +561,7 @@ class rir_room:
             
                 st_time = int(listdata["start_time"][index] * self.fs)
                 ed_time = int(listdata["end_time"][index] * self.fs)
-                audio = audio[:ed_time-st_time]    
-                    
-                    
+                audio = audio[:ed_time-st_time]                     
                 
                 if index == 0:
                     final_audio = audio
@@ -624,7 +616,6 @@ class rir_room:
                 
             start_time = listdata["end_time"][index]
         return final_audio
-    
 
     def _set_pos(self):
         '''
@@ -772,7 +763,7 @@ class rir_room:
     def resample(self,y, original_sample_rate, target_sample_rate: int = 16_000):
         return signal.resample(y, int(len(y) * target_sample_rate / original_sample_rate))
     
-    def gen_desired_spatial_coherence(self, pos_mics: np.ndarray, fs: int, noise_field: str = 'spherical', c: float = 343.0, nfft: int = 256) -> np.ndarray:
+    def _gen_desired_spatial_coherence(self, pos_mics: np.ndarray, fs: int, noise_field: str = 'spherical', c: float = 343.0, nfft: int = 256) -> np.ndarray:
         '''
         generate desired spatial coherence for one array
 
@@ -824,7 +815,7 @@ class rir_room:
         return DSC, Cs
 
 
-    def prepare_diffuse_noise(self, noise: np.ndarray, L: int, Cs: np.ndarray, nfft: int = 256, rng: np.random.Generator = np.random.default_rng()) -> np.ndarray:
+    def _prepare_diffuse_noise(self, noise: np.ndarray, L: int, Cs: np.ndarray, nfft: int = 256, rng: np.random.Generator = np.random.default_rng()) -> np.ndarray:
         '''generate diffuse noise with the mixing matrice of desired spatial coherence
 
         Args:
@@ -855,7 +846,7 @@ class rir_room:
         return x  # [M, L]
     
     
-    def gen_diffuse_noise(self,noise_path,nfft = 1024,fs=16000):
+    def _gen_diffuse_noise(self,noise_path,nfft = 1024,fs=16000):
         diffuse_noise = []
         for i in range(len(self.mic_loc)):
             pos_mics = self.mic_loc[i].T.tolist() 
@@ -887,16 +878,16 @@ class rir_room:
                 fs = self.fs
             #noise = (self._set_gain(torch.from_numpy(noise),-200)).numpy()
 
-            DSC, Cs = self.gen_desired_spatial_coherence(pos_mics=pos_mics, fs=fs, noise_field='spherical', nfft=nfft)
+            DSC, Cs = self._gen_desired_spatial_coherence(pos_mics=pos_mics, fs=fs, noise_field='spherical', nfft=nfft)
             
             L = int(noise.shape[0] / Cs.shape[1])
-            diffuse_noise.append(self.prepare_diffuse_noise(noise=noise, L=L, Cs=Cs, nfft=nfft))
+            diffuse_noise.append(self._prepare_diffuse_noise(noise=noise, L=L, Cs=Cs, nfft=nfft))
             
 
         return diffuse_noise
 
 
-    def point_noise_simulate(self,noise,start,noise_list):
+    def _point_noise_simulate(self,noise,start,noise_list):
         '''
             simulate each point noise
         '''
@@ -922,11 +913,15 @@ class rir_room:
             x = center[0] + r * math.cos(theta)
             y = center[1] + r * math.sin(theta)
 
+            # Prevent out-of-bounds and ensure that it is within [d, room_size - d]
+            x = min(max(x, self.d ), self.room_size[0] - self.d)
+            y = min(max(y, self.d), self.room_size[1] - self.d)
+
             noise_pos = [x,y,noise_height]
 
 
         elif noise_list[1] == 'far':
-            width = self.room_size[0]-2*self.d
+            width = self.room_size[0]-self.d
             length = self.room_size[1]-self.d
             def top_edge():
                 return (round(random.uniform(self.d, width),2), length)
@@ -957,7 +952,7 @@ class rir_room:
         room_for_noise.simulate()
         return room_for_noise.mic_array.signals
 
-    def gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
+    def _gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
         '''
             gen final point noise audio
             gen intervals between each point noise
@@ -992,10 +987,10 @@ class rir_room:
             end = start + dur
             self.point_noise_time += dur
             if end > self.audio_len or i == point-1:
-                print(f"add {noise_num} point noise")
+                #print(f"add {noise_num} point noise")
                 break  
             time_cursor = end
-            point_noise_audio = self.point_noise_simulate(noise,interval[i],noise_list)
+            point_noise_audio = self._point_noise_simulate(noise,interval[i],noise_list)
 
             if i == 0:
                 final_point_noise_audio = point_noise_audio
@@ -1013,7 +1008,7 @@ class rir_room:
         
         return point_noise
 
-    def compute_DRR(self,h, fs, t_direct_ms=5):
+    def _compute_DRR(self,h, fs, t_direct_ms=5):
         '''
             compute DRR
         '''
@@ -1027,7 +1022,7 @@ class rir_room:
         drr_db = 10 * np.log10(energy_direct / (energy_reverb + 1e-12))
         return drr_db
     
-    def compute_SRR(self,s, h, fs, t_early_ms=50):
+    def _compute_SRR(self,s, h, fs, t_early_ms=50):
         '''
             compute SRR
         '''
@@ -1105,19 +1100,19 @@ class rir_room:
             add noise to clean audio
         '''
         
-        SNR_point             = simulate_config.get('SNR_point', )
-        SNR_point_arr         = simulate_config.get('SNR_point_arr', )
-        SNR_diffuse           = simulate_config.get('SNR_diffuse', )    
-        SNR_diffuse_arr       = simulate_config.get('SNR_diffuse_arr', )
+        SNR_point             = self.simulate_config.get('SNR_point', )
+        SNR_point_arr         = self.simulate_config.get('SNR_point_arr', )
+        SNR_diffuse           = self.simulate_config.get('SNR_diffuse', )    
+        SNR_diffuse_arr       = self.simulate_config.get('SNR_diffuse_arr', )
         
         filename = os.path.splitext(os.path.basename(self.filepath))[0]
         
         
         #gen point_noise
-        point_noise = self.gen_point_noise(self.category_files,self.target_categories,point_noise_path)
+        point_noise = self._gen_point_noise(self.category_files,self.target_categories,point_noise_path)
         
         diffuse_file = random.choice(os.listdir(diffuse_noise_path))
-        diffuse_noise = self.gen_diffuse_noise(os.path.join(diffuse_noise_path,diffuse_file))
+        diffuse_noise = self._gen_diffuse_noise(os.path.join(diffuse_noise_path,diffuse_file))
         
         if SNR_point == None:
             SNR_point = random.randint(SNR_point_arr[0],SNR_point_arr[1])
@@ -1128,6 +1123,7 @@ class rir_room:
         self.SNR_diffuse = SNR_diffuse
         
         arraynum = 0
+        os.makedirs(os.path.join(output_dir,"noisy"), exist_ok=True)
         for i in range(len(self.mic_loc)):
             clean_signal = self.room.mic_array.signals[arraynum : arraynum + len(self.mic_loc[i][1])]
             arraynum += len(self.mic_loc[i][1])
@@ -1140,7 +1136,7 @@ class rir_room:
                                         )
             
             final_signal = final_signal.numpy()
-            output_path_noisy = os.path.join(output_dir,"noisy", f"{filename}_array_{i+1}_noisy_signal.wav")
+            output_path_noisy = os.path.join(output_dir,"noisy", f"{filename}_array_{i+1}.wav")
             sf.write(
                 output_path_noisy,  
                 final_signal,         
@@ -1154,7 +1150,9 @@ class rir_room:
         
 
         info_path = f"{filename}_info.json"
-        with open(os.path.join(output_dir,info_path), "w", encoding="utf-8") as file:
+        json_dir = os.path.join(output_dir, "json")
+        os.makedirs(json_dir, exist_ok=True)  
+        with open(os.path.join(json_dir, info_path), "w", encoding="utf-8") as file:
             file.write(self.to_json())
 
         
@@ -1163,20 +1161,19 @@ class rir_room:
 if __name__ == '__main__':
     
     import yaml
-    config = yaml.safe_load(open("/data/zjj/rir/rir_test/script_test/config.yaml", 'r'))
+    config = yaml.safe_load(open("/home3/yihao/Research/Code/Large-scale-diarization-dataset/config/config.yaml", 'r'))
     simulate_config = config["multi_channel_simulate_config"]
     random.seed(42)
-    room = rir_room(
-        filepath = "/data/zjj/rir/rir_single/list/0000057.list",
+    room = multichannel_rir_room(
+        filepath = "/home3/yihao/Research/Code/Large-scale-diarization-dataset/exp/exp1/test/samples/00_00000_pre.list",
         simulate_config = simulate_config
     )
-    room.simulate("/data/zjj/rir/rir_single/output/0000057")
+    room.simulate("/home3/yihao/Research/Code/Large-scale-diarization-dataset/exp/exp1/test/wavs")
     
     
 
-    room.add_noise("/data/zjj/rir/rir_single/output/0000057",
-                   "/data/zjj/rir/esc50/ESC-50-master/audio",
-                   "/data/zjj/rir/noise_test"
+    room.add_noise("/home3/yihao/Research/Code/Large-scale-diarization-dataset/exp/exp1/test/wavs",
+                   "/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/point_noise",
+                   "/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/diffuse_noise"
                    )
-
     
