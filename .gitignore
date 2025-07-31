@@ -3,9 +3,9 @@
 # ===================== #
 
 # Ignore experiment and dataset directories
-metadata/
-noise_dataset/
-exp/
+/metadata/
+/noise_dataset/
+/exp/
 
 # Python cache
 __pycache__/
