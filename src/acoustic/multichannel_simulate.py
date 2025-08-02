@@ -116,6 +116,7 @@ if __name__ == "__main__":
     config = yaml.safe_load(open(args.config, 'r'))
     simulate_config = config["multi_channel_simulate_config"]
     np.random.seed(config['seed']) # seed
+    random.seed(config['seed']) # seed
     
     rir_simulate(simulate_config, args)
 

@@ -25,6 +25,7 @@ from scipy.signal import stft, istft,get_window
 from scipy.linalg import cholesky, eigh
 from scipy.signal import convolve
 from collections import defaultdict
+from scipy.signal import fftconvolve
 
 
 class multichannel_rir_room:
@@ -107,6 +108,7 @@ class multichannel_rir_room:
         self.gains = []
 
         self.host_pos = []
+        self.host_delay = []
         self.drr = 0
         self.srr = 0
 
@@ -257,8 +259,11 @@ class multichannel_rir_room:
                 self.room_type = "large"
  
         if self.meeting_type == None:
-            meeting_types = meeting_types if len(self.listdata) < 20 else [meeting_types[0], meeting_types[2]]
-            self.meeting_type = random.choice(meeting_types)
+            if 'pre' in self.filepath:
+                self.meeting_type = 'speech'
+            else:
+                meeting_types = [meeting_types[0], meeting_types[2]]
+                self.meeting_type = random.choice(meeting_types)
 
         #compute e_absorption, max_order
         self.e_absorption, self.max_order = pra.inverse_sabine(self.rt60,self.room_size)
@@ -283,7 +288,10 @@ class multichannel_rir_room:
             self.src_center = [(self.room_size[0]-self.d_wall)/2,self.room_size[1]/2]
             self.max_radius = min(self.room_size[0]-self.d_wall,self.room_size[1])/2-self.d_wall
             self.radius = round(random.uniform(2,self.max_radius),3)
-            self.min_angle = 2 * math.asin(self.d_wall / (2 * self.radius))
+            # Modified: self.min_angle is now set to half of the original value to reduce the minimum angle between two speakers.
+            # Original: self.min_angle = 2 * math.asin(self.d_wall / (2 * self.radius))
+            # Changed to half of the original value
+            self.min_angle = math.asin(self.d_wall / (2 * self.radius))
         elif self.meeting_type == "desk":
             self.width = self.room_size[0]-2*self.d_wall
             self.length = self.room_size[1]-self.d_wall
@@ -374,7 +382,7 @@ class multichannel_rir_room:
         host_label = item["label"]
         self.speech_host_label = host_label
 
-    def simulate(self, output_dir):
+    def simulate_v1(self, output_dir):
         '''
             rir simulate
         '''
@@ -511,6 +519,197 @@ class multichannel_rir_room:
         #         self.fs,                   
         #         subtype="PCM_16"     
         #     )
+        
+    def simulate(self, output_dir):
+        '''
+        Simulate multi-channel signals by generating RIRs for each source position,
+        convolving each speech segment with the corresponding RIR using fftconvolve,
+        and summing the results into the simulated microphone signals.
+        '''
+        # Set host label for 'speech' meeting type
+        if self.meeting_type == "speech":
+            host_label = self.simulate_config.get('host_label', )
+            self._set_host_label(host_label)
+
+        num_arrays = len(self.mic_loc)
+        mic_channels = [arr.shape[1] for arr in self.mic_loc]
+        total_length = int(self.audio_len * self.fs) + \
+            16000  # add margin for tail
+
+        # Initialize output signals for each array
+        signals = [np.zeros((mic_channels[i], total_length),
+                            dtype=np.float32) for i in range(num_arrays)]
+
+        # Generate RIRs for each source and each array
+        rir_dict = {}
+        src_positions = []
+        host_indices = []
+        for idx, item in enumerate(self.listdata):
+            if item["label"] != self.speech_host_label:
+                src_pos = self._set_pos()
+                src_positions.append(src_pos)
+                self.room.add_source(src_pos)
+        # Place host position at the end
+        if self.meeting_type == "speech":
+            item = next(
+                (item for item in self.listdata if item["label"] == self.speech_host_label), None)
+            self.set_speech_host_pos(item)
+            for hpos in self.host_pos:
+                src_positions.append(hpos)
+                self.room.add_source(hpos)
+            # host_indices
+            host_indices = list(
+                range(len(src_positions) - len(self.host_pos), len(src_positions)))
+
+        self.room.compute_rir()
+
+        # RIR Extraction
+        for src_idx, src_pos in enumerate(src_positions):
+            for arr_idx, mic_arr in enumerate(self.mic_loc):
+                rirs = []
+                for ch in range(mic_arr.shape[1]):
+                    rir = self.room.rir[
+                        sum([arr.shape[1]
+                            for arr in self.mic_loc[:arr_idx]]) + ch
+                    ][src_idx]
+                    rirs.append(rir)
+                rir_dict[(src_idx, arr_idx)] = rirs
+
+        # Segments convolution for all speakers
+        for src_idx, item in enumerate(self.listdata):
+            signal_gain = random.uniform(
+                self.signal_gains_arr[0], self.signal_gains_arr[1])
+            self.gains.append(signal_gain)
+            if item["label"] == self.speech_host_label:
+                # host part:
+                for host_idx, audio_host in enumerate(self.host_audio):
+                    # start_sample = int(item["start_time"][host_idx] * self.fs)
+                    start_sample = int(self.host_delay[host_idx] * self.fs)
+                    host_src_idx = host_indices[host_idx]
+                    for arr_idx in range(num_arrays):
+                        for ch in range(mic_channels[arr_idx]):
+                            rir = rir_dict[(host_src_idx, arr_idx)][ch]
+                            conv = fftconvolve(audio_host, rir)
+                            end_idx = min(
+                                start_sample + len(conv), total_length)
+                            signals[arr_idx][ch,
+                                             start_sample:end_idx] += conv[:end_idx - start_sample]
+            else:
+                # non-host speakers
+                for seg_idx in range(len(item["file_path"])):
+                    audio_path = item["file_path"][seg_idx]
+                    audio, fs = sf.read(audio_path)
+                    if fs != self.fs:
+                        audio = self.resample(audio, fs, self.fs)
+                    if len(audio.shape) > 1:
+                        audio = audio[0]
+                    st_time = int(item["start_time"][seg_idx] * self.fs)
+                    ed_time = int(item["end_time"][seg_idx] * self.fs)
+                    seg_audio = audio[:ed_time - st_time]
+                    seg_audio = self._set_gain(
+                        torch.from_numpy(seg_audio), signal_gain).numpy()
+                    for arr_idx in range(num_arrays):
+                        for ch in range(mic_channels[arr_idx]):
+                            rir = rir_dict[(src_idx, arr_idx)][ch]
+                            conv = fftconvolve(seg_audio, rir)
+                            end_idx = min(st_time + len(conv), total_length)
+                            signals[arr_idx][ch,
+                                             st_time:end_idx] += conv[:end_idx - st_time]
+
+        signals = np.concatenate(signals, axis=0)
+        self.room.mic_array.record(signals, self.fs)
+
+        # SRR/DRR calculation (new version, directly use rir_dict and host_audio/seg_audio)
+        if self.is_compute_SRR or self.is_compute_DRR:
+            # Non-host speakers
+            for src_idx, item in enumerate(self.listdata):
+                if item["label"] == self.speech_host_label:
+                    continue
+                # Only use the first segment audio (extend if needed)
+                audio_path = item["file_path"][0]
+                audio, fs = sf.read(audio_path)
+                if fs != self.fs:
+                    audio = self.resample(audio, fs, self.fs)
+                if len(audio.shape) > 1:
+                    audio = audio[0]
+                seg_audio = audio
+                # Use the first channel of the first mic array RIR
+                rir1 = rir_dict[(src_idx, 0)][0]
+                rir2 = rir_dict[(src_idx, len(self.mic_loc)-1)][0]
+                self.SRR_circle.append(
+                    self._compute_SRR(seg_audio, rir1, self.fs))
+                self.SRR_linear.append(
+                    self._compute_SRR(seg_audio, rir2, self.fs))
+                self.DRR_circle.append(self._compute_DRR(rir1, self.fs))
+                self.DRR_linear.append(self._compute_DRR(rir2, self.fs))
+                if self.array_num == 2:
+                    rir3 = rir_dict[(src_idx, 1)][0]
+                    self.SRR_circle2.append(
+                        self._compute_SRR(seg_audio, rir3, self.fs))
+                    self.DRR_circle2.append(self._compute_DRR(rir3, self.fs))
+            # Host speaker
+            if self.meeting_type == "speech":
+                item = next(
+                    (item for item in self.listdata if item["label"] == self.speech_host_label), None)
+                host_srr_circle = []
+                host_srr_circle2 = []
+                host_srr_linear = []
+                host_drr_circle = []
+                host_drr_circle2 = []
+                host_drr_linear = []
+                for host_idx, audio_host in enumerate(self.host_audio):
+                    rir1 = rir_dict[(host_indices[host_idx], 0)][0]
+                    rir_linear = rir_dict[(
+                        host_indices[host_idx], len(self.mic_loc)-1)][0]
+                    host_srr_circle.append(
+                        self._compute_SRR(audio_host, rir1, self.fs))
+                    host_srr_linear.append(self._compute_SRR(
+                        audio_host, rir_linear, self.fs))
+                    host_drr_circle.append(self._compute_DRR(rir1, self.fs))
+                    host_drr_linear.append(
+                        self._compute_DRR(rir_linear, self.fs))
+                    if self.array_num == 2:
+                        rir2 = rir_dict[(
+                            host_indices[host_idx], 1)][0]
+                        host_srr_circle2.append(
+                            self._compute_SRR(audio_host, rir2, self.fs))
+                        host_drr_circle2.append(
+                            self._compute_DRR(rir2, self.fs))
+                self.SRR_circle.append(np.mean(host_srr_circle))
+                self.SRR_linear.append(np.mean(host_srr_linear))
+                self.DRR_circle.append(np.mean(host_drr_circle))
+                self.DRR_linear.append(np.mean(host_drr_linear))
+                if self.array_num == 2:
+                    self.SRR_circle2.append(np.mean(host_srr_circle2))
+                    self.DRR_circle2.append(np.mean(host_drr_circle2))
+
+        if self.is_compute_SRR:
+            tmp = np.mean(self.SRR_circle)
+            self.SRR.append(tmp.tolist())
+            if self.array_num == 2:
+                tmp = np.mean(self.SRR_circle2)
+                self.SRR.append(tmp.tolist())
+            tmp = np.mean(self.SRR_linear)
+            self.SRR.append(tmp.tolist())
+            self.srr = np.mean(self.SRR)
+
+        if self.is_compute_DRR:
+            tmp = np.mean(self.DRR_circle)
+            self.DRR.append(tmp.tolist())
+            if self.array_num == 2:
+                tmp = np.mean(self.DRR_circle2)
+                self.DRR.append(tmp.tolist())
+            tmp = np.mean(self.DRR_linear)
+            self.DRR.append(tmp.tolist())
+            self.drr = np.mean(self.DRR)
+
+        # Save simulated signals for each array
+        # filename = os.path.splitext(os.path.basename(self.filepath))[0]
+        # os.makedirs(os.path.join(output_dir, "reverb"), exist_ok=True)
+        # for i, sig in enumerate(signals):
+        #     output_path = os.path.join(
+        #         output_dir, "reverb", f"{filename}_array_{i+1}_reverb.wav")
+        #     sf.write(output_path, sig.T, self.fs, subtype="PCM_16")
             
     def set_speech_host_pos(self,listdata,split_size=100):
         '''
@@ -559,8 +758,8 @@ class multichannel_rir_room:
                 if len(audio.shape) > 1:
                     audio = audio[0]
             
-                st_time = int(listdata["start_time"][index] * self.fs)
-                ed_time = int(listdata["end_time"][index] * self.fs)
+                st_time = int(listdata["start_time"][start_index + index] * self.fs)
+                ed_time = int(listdata["end_time"][start_index + index] * self.fs)
                 audio = audio[:ed_time-st_time]                     
                 
                 if index == 0:
@@ -578,8 +777,9 @@ class multichannel_rir_room:
             src_pos = [x,y,z]
             self.host_pos.append(src_pos)
             self.host_audio.append(final_audio)
-            delay=listdata["start_time"][start_index]
-            self.room.add_source(src_pos, signal=final_audio, delay=delay)
+            delay = listdata["start_time"][start_index]
+            self.host_delay.append(delay)
+            # self.room.add_source(src_pos, signal=final_audio, delay=delay)
 
             start_index += chunks
 
@@ -808,7 +1008,8 @@ class multichannel_rir_room:
             
             D, V = eigh(DSC[:, :, k])
             D = np.clip(D, a_min=1e-8, a_max=None)
-            C = V @ np.diag(np.sqrt(D))
+            # C = V @ np.diag(np.sqrt(D))
+            C = V.T * np.sqrt(D)[:, np.newaxis]
 
             Cs[k, ...] = C
 
