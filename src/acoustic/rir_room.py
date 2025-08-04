@@ -23,9 +23,9 @@ import torch
 
 from scipy.signal import convolve
 from collections import defaultdict
+from scipy.signal import fftconvolve
 
-
-class rir_room:
+class singlechannel_rir_room:
     def __init__(self, 
                 filepath,
                 *,
@@ -1031,7 +1031,7 @@ if __name__ == '__main__':
     config = yaml.safe_load(open("/home3/yihao/Research/Code/Large-scale-diarization-dataset/config/config.yaml", 'r'))
     simulate_config = config["simulate_config"]
     random.seed(42)
-    room = rir_room(
+    room = singlechannel_rir_room(
         filepath = "/home3/yihao/Research/Code/Large-scale-diarization-dataset/exp/exp1/test/samples/00_00000_pre.list",
         simulate_config = simulate_config
     )
@@ -1044,4 +1044,5 @@ if __name__ == '__main__':
                    "/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/diffuse_noise"
                    )
     
+
 
