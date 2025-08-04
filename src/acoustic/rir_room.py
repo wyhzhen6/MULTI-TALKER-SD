@@ -70,7 +70,7 @@ class singlechannel_rir_room:
         )
 
         # setting distance parameters
-        self.d = 0.5        # min_dis
+        self.d = 0.3        # min_dis
         self.d_src = round(random.uniform(0.4, 0.5), 2) # min_src_dis
         self.d_wall = round(random.uniform(0.45, 0.55), 2) # min_src_wall
 
@@ -1044,5 +1044,6 @@ if __name__ == '__main__':
                    "/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/diffuse_noise"
                    )
     
+
 
 
