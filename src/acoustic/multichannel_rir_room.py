@@ -622,6 +622,7 @@ class multichannel_rir_room:
         # SRR/DRR calculation (new version, directly use rir_dict and host_audio/seg_audio)
         if self.is_compute_SRR or self.is_compute_DRR:
             # Non-host speakers
+            idx = 0
             for src_idx, item in enumerate(self.listdata):
                 if item["label"] == self.speech_host_label:
                     continue
@@ -634,8 +635,8 @@ class multichannel_rir_room:
                     audio = audio[0]
                 seg_audio = audio
                 # Use the first channel of the first mic array RIR
-                rir1 = rir_dict[(src_idx, 0)][0]
-                rir2 = rir_dict[(src_idx, len(self.mic_loc)-1)][0]
+                rir1 = rir_dict[(idx, 0)][0]
+                rir2 = rir_dict[(idx, len(self.mic_loc)-1)][0]
                 self.SRR_circle.append(
                     self._compute_SRR(seg_audio, rir1, self.fs))
                 self.SRR_linear.append(
@@ -643,7 +644,7 @@ class multichannel_rir_room:
                 self.DRR_circle.append(self._compute_DRR(rir1, self.fs))
                 self.DRR_linear.append(self._compute_DRR(rir2, self.fs))
                 if self.array_num == 2:
-                    rir3 = rir_dict[(src_idx, 1)][0]
+                    rir3 = rir_dict[(idx, 1)][0]
                     self.SRR_circle2.append(
                         self._compute_SRR(seg_audio, rir3, self.fs))
                     self.DRR_circle2.append(self._compute_DRR(rir3, self.fs))
@@ -834,7 +835,7 @@ class multichannel_rir_room:
         '''
         attempts = 0
         valid = True
-        src_height = round(random.uniform(1.2,1.4),3)
+        src_height = round(random.uniform(1.2, 1.4),3)
         while attempts < self.max_attempts:
             valid = True
             angle = random.uniform(0, 2 * math.pi)
@@ -843,98 +844,81 @@ class multichannel_rir_room:
                 if angle_new < self.min_angle:
                     valid = False
                     break
-            if valid:
-                x = self.src_center[0] + self.radius * math.cos(angle)
-                y = self.src_center[1] + self.radius * math.sin(angle)
-                self.angles.append(angle)
-                self.loc.append((x, y,src_height))
-                break
-
+            if valid:  break
             attempts += 1
-        if not valid:
-            raise ValueError("no available pos")
-
+            
+        x = self.src_center[0] + self.radius * math.cos(angle)
+        y = self.src_center[1] + self.radius * math.sin(angle)
+        self.angles.append(angle)
+        self.loc.append((x, y, src_height))
+        # print(f"[Warning] Forced placement at ({x:.2f}, {y:.2f}) after {attempts} attempts.")
         return [x,y,src_height]
 
     def _set_pos_table(self):
         '''
             set src pos for "desk" meeting type
         '''
-        src_height = round(random.uniform(1.2,1.4),3)
-        def top_edge():
-            return (round(random.uniform(self.d_wall, self.width),2), self.length)
-            
-        def right_edge():
-            return (self.width, round(random.uniform(self.d_wall, self.length),2))
-            
-        def bottom_edge():
-            return (round(random.uniform(self.d_wall, self.width),2), self.d_wall)
-            
-        def left_edge():
-            return (self.d_wall, round(random.uniform(self.d_wall, self.length),2))
-        
-        def is_valid_pos(x1,y1):
-            for x,y,z in self.loc:
-                dis = math.sqrt((x1-x)**2 + (y1-y)**2)
-                if dis < self.d:
-                    return  False
-            return True
+        src_height = round(random.uniform(1.2, 1.4), 3)
+
+        def top_edge(): return (round(random.uniform(self.d_wall, self.width), 2), self.length)
+        def right_edge(): return (self.width, round(random.uniform(self.d_wall, self.length), 2))
+        def bottom_edge(): return (round(random.uniform(self.d_wall, self.width), 2), self.d_wall)
+        def left_edge(): return (self.d_wall, round(random.uniform(self.d_wall, self.length), 2))
 
         edges = [top_edge, right_edge, bottom_edge, left_edge]
 
-        
-        random.shuffle(edges)
-        placed = False
-        attempts = 0
+        def is_valid_pos(x1, y1):
+            return all(math.hypot(x1 - x, y1 - y) >= self.d for x, y, _ in self.loc)
 
+        random.shuffle(edges)
+        attempts = 0
+        final_pos = None
         while attempts < self.max_attempts:
             for edge in edges:
-                x,y = edge()
+                x, y = edge()
                 if is_valid_pos(x, y):
-                    self.loc.append((x, y,src_height))
-                    placed = True
-                    break
-            if placed:
-                break
-            attempts +=1
+                    self.loc.append((x, y, src_height))
+                    return [x, y, src_height]
+                final_pos = (x, y)
+            attempts += 1
 
-        if not placed:
-            raise ValueError("no available pos")
-
-        return [x,y,src_height]
+        x, y = final_pos
+        self.loc.append((x, y, src_height))
+        # print(f"[Warning] Forced placement at ({x:.2f}, {y:.2f}) after {attempts} attempts.")
+        return [x, y, src_height]
     
     def _set_pos_speech(self):
         '''
             set audience pos for "speech" meeting type
         '''
-        src_height = round(random.uniform(1.2,1.4),3)
+        src_height = round(random.uniform(1.2, 1.4), 3)
 
         attempts = 0
-        valid = True
+        final_pos = None
+
         while attempts < self.max_attempts:
-            r = random.uniform(0,self.max_radius)
+            r = random.uniform(0, self.max_radius)
             theta = random.uniform(0, 2 * math.pi)
 
             x = self.src_center[0] + r * math.cos(theta)
             y = self.src_center[1] + r * math.sin(theta)
 
-            valid = True
-            for existing_x, existing_y,z in self.loc:
-                distance = math.sqrt((x - existing_x) ** 2 + (y - existing_y) ** 2)
-                if distance < self.d:
-                    valid = False
-                    break
-                
-            if valid:
-                self.loc.append((x, y,src_height))
-                break
-                
+            is_valid = all(
+                math.hypot(x - ex, y - ey) >= self.d
+                for ex, ey, _ in self.loc
+            )
+
+            if is_valid:
+                self.loc.append((x, y, src_height))
+                return [x, y, src_height]
+
+            final_pos = (x, y)
             attempts += 1
-            
-        if not valid:
-            raise ValueError("no available pos")
-            
-        return [x,y,src_height]
+
+        x, y = final_pos
+        self.loc.append((x, y, src_height))
+        # print(f"[Warning] Forced speech source placement at ({x:.2f}, {y:.2f}) after {attempts} attempts.")
+        return [x, y, src_height]
 
     def _set_gain(self, signal, target_db):
         '''
@@ -1109,7 +1093,7 @@ class multichannel_rir_room:
         #pos
         if noise_list[1] == 'near':
             center = self.loc[random.randint(0,len(self.loc)-1)]
-            r = random.uniform(0.1,0.5)
+            r = random.uniform(0.1,0.35)
             theta = random.uniform(0, 2 * math.pi)
             x = center[0] + r * math.cos(theta)
             y = center[1] + r * math.sin(theta)
