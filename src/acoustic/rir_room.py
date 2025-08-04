@@ -91,6 +91,7 @@ class rir_room:
         self.gains = []             # gains for speakers
         
         self.host_pos = []
+        self.host_delay = []
         self.drr = 0
         self.srr = 0
         
@@ -226,9 +227,12 @@ class rir_room:
                 self.room_type = "large"
  
         if self.meeting_type == None:
-            meeting_types = meeting_types if len(self.listdata) < 20 else [meeting_types[0], meeting_types[2]]
-            self.meeting_type = random.choice(meeting_types)
-
+            if 'pre' in self.filepath:
+                self.meeting_type = 'speech'
+            else:
+                meeting_types = [meeting_types[0], meeting_types[2]]
+                self.meeting_type = random.choice(meeting_types)
+                
         #compute e_absorption, max_order
         self.e_absorption, self.max_order = pra.inverse_sabine(self.rt60,self.room_size)
 
@@ -252,7 +256,10 @@ class rir_room:
             self.src_center = [(self.room_size[0]-self.d_wall)/2,self.room_size[1]/2]
             self.max_radius = min(self.room_size[0]-self.d_wall,self.room_size[1])/2-self.d_wall
             self.radius = round(random.uniform(2,self.max_radius),3)
-            self.min_angle = 2 * math.asin(self.d_wall / (2 * self.radius))
+            # Modified: self.min_angle is now set to half of the original value to reduce the minimum angle between two speakers.
+            # Original: self.min_angle = 2 * math.asin(self.d_wall / (2 * self.radius))
+            # Changed to half of the original value
+            self.min_angle = math.asin(self.d_wall / (2 * self.radius))
         elif self.meeting_type == "desk":
             self.width = self.room_size[0]-2*self.d_wall
             self.length = self.room_size[1]-self.d_wall
@@ -269,16 +276,18 @@ class rir_room:
                 "desk": table(0.8 to 1)
                 "speech": ceiling(room_height-1 to room_height-min_mic_dis)
         '''
-        if self.mic_loc == None:
-            mic_height =[round(random.uniform(0.8,1),2),round(random.uniform(self.room_size[2]-1,self.room_size[2]-self.d),2)] #table,ceiling
-            if self.meeting_type == "circle":
-                mic_height = mic_height[0] #table
-            elif self.meeting_type == "desk":
-                mic_height = mic_height[0] #table
-            elif self.meeting_type == "speech":
-                mic_height = mic_height[1] #ceiling
 
-            self.mic_loc = [self.room_size[0]/2, self.room_size[1]/2, mic_height]
+        mic_height =[round(random.uniform(0.8,1),2),round(random.uniform(self.room_size[2]-1,self.room_size[2]-self.d),2)] #table,ceiling
+        
+        if self.mic_loc == None:
+            if self.meeting_type == "circle":
+                h = mic_height[0] #table
+            elif self.meeting_type == "desk":
+                h = mic_height[0] #table
+            elif self.meeting_type == "speech":
+                h = mic_height[1] #ceiling
+
+            self.mic_loc = [self.room_size[0]/2, self.room_size[1]/2, h]
         self.room.add_microphone(self.mic_loc)
 
     def _set_host_label(self, host_label):
@@ -296,7 +305,7 @@ class rir_room:
         host_label = item["label"]
         self.speech_host_label = host_label
     
-    def simulate(self, output_dir):
+    def simulate_v1(self, output_dir):
         '''
             rir simulate
         '''
@@ -367,6 +376,147 @@ class rir_room:
             self.fs,                   
             subtype="PCM_16"     
            )
+
+    def simulate(self, output_dir):
+        '''
+        Simulate multi-channel signals by generating RIRs for each source position,
+        convolving each speech segment with the corresponding RIR using fftconvolve,
+        and summing the results into the simulated microphone signals.
+        '''
+        # Set host label for 'speech' meeting type
+        if self.meeting_type == "speech":
+            host_label = self.simulate_config.get('host_label', )
+            self._set_host_label(host_label)
+
+        total_length = int(self.audio_len * self.fs) + \
+            16000  # add margin for tail
+        
+        # Initialize output signals for each array
+        signals = np.zeros((1, total_length), dtype=np.float32)
+
+        # Generate RIRs for each source and each array
+        rir_dict = []
+        src_positions = []
+        host_indices = []
+        for idx, item in enumerate(self.listdata):
+            if item["label"] != self.speech_host_label:
+                src_pos = self._set_pos()
+                src_positions.append(src_pos)
+                self.room.add_source(src_pos)
+        # Place host position at the end
+        if self.meeting_type == "speech":
+            item = next(
+                (item for item in self.listdata if item["label"] == self.speech_host_label), None)
+            self.set_speech_host_pos(item)
+            for hpos in self.host_pos:
+                src_positions.append(hpos)
+                self.room.add_source(hpos)
+            # host_indices
+            host_indices = list(
+                range(len(src_positions) - len(self.host_pos), len(src_positions)))
+
+        self.room.compute_rir()
+
+        # RIR Extraction
+        for src_idx, src_pos in enumerate(src_positions):
+            rir = self.room.rir[0][src_idx]
+            rir_dict.append(rir)
+        
+        # Segments convolution for all speakers
+        for src_idx, item in enumerate(self.listdata):
+            signal_gain = random.uniform(
+                self.signal_gains_arr[0], self.signal_gains_arr[1])
+            self.gains.append(signal_gain)
+            if item["label"] == self.speech_host_label:
+                # host part:
+                for host_idx, audio_host in enumerate(self.host_audio):
+                    # start_sample = int(item["start_time"][host_idx] * self.fs)
+                    start_sample = int(self.host_delay[host_idx] * self.fs)
+                    host_src_idx = host_indices[host_idx]
+                    rir = rir_dict[host_src_idx]
+                    conv = fftconvolve(audio_host, rir)
+                    end_idx = min(
+                        start_sample + len(conv), total_length)
+                    signals[0][start_sample:end_idx] += conv[:end_idx - start_sample]
+            else:
+                # non-host speakers
+                for seg_idx in range(len(item["file_path"])):
+                    audio_path = item["file_path"][seg_idx]
+                    audio, fs = sf.read(audio_path)
+                    if fs != self.fs:
+                        audio = self.resample(audio, fs, self.fs)
+                    if len(audio.shape) > 1:
+                        audio = audio[0]
+                    st_time = int(item["start_time"][seg_idx] * self.fs)
+                    ed_time = int(item["end_time"][seg_idx] * self.fs)
+                    seg_audio = audio[:ed_time - st_time]
+                    seg_audio = self._set_gain(
+                        torch.from_numpy(seg_audio), signal_gain).numpy()
+
+                    rir = rir_dict[src_idx]
+                    conv = fftconvolve(seg_audio, rir)
+                    end_idx = min(st_time + len(conv), total_length)
+                    signals[0][st_time:end_idx] += conv[:end_idx - st_time]
+
+        self.room.mic_array.record(signals, self.fs)
+        
+        # SRR/DRR calculation (new version, directly use rir_dict and host_audio/seg_audio)
+        if self.is_compute_SRR or self.is_compute_DRR:
+            # Non-host speakers
+            idx = 0
+            for src_idx, item in enumerate(self.listdata):
+                if item["label"] == self.speech_host_label:
+                    continue
+                # Only use the first segment audio (extend if needed)
+                audio_path = item["file_path"][0]
+                audio, fs = sf.read(audio_path)
+                if fs != self.fs:
+                    audio = self.resample(audio, fs, self.fs)
+                if len(audio.shape) > 1:
+                    audio = audio[0]
+                seg_audio = audio
+                # Use the first channel of the first mic array RIR
+                rir = rir_dict[idx]
+                self.SRR.append(
+                    self._compute_SRR(seg_audio, rir, self.fs))
+                self.DRR.append(
+                    self._compute_DRR(rir, self.fs))
+
+                idx += 1
+
+            # Host speaker
+            if self.meeting_type == "speech":
+                item = next(
+                    (item for item in self.listdata if item["label"] == self.speech_host_label), None)
+                host_srr = []
+                host_drr = []
+                for host_idx, audio_host in enumerate(self.host_audio):
+                    rir = rir_dict[host_indices[host_idx]]
+                    host_srr.append(
+                        self._compute_SRR(audio_host, rir, self.fs))
+                    host_drr.append(
+                        self._compute_DRR(rir, self.fs))
+                
+                self.SRR.append(np.mean(host_srr))
+                self.DRR.append(np.mean(host_drr))
+
+        if self.is_compute_SRR:
+            self.srr = np.mean(self.SRR)
+
+        if self.is_compute_DRR:
+            self.drr = np.mean(self.DRR)
+
+        #save reverb audio
+        filename = os.path.splitext(os.path.basename(self.filepath))[0]
+        reverb_signal = np.asarray(self.room.mic_array.signals, dtype=np.float32)
+        reverb_signal = reverb_signal.T
+        output_path_reverb = os.path.join(output_dir,"reverb", f"{filename}_reverb.wav")
+        sf.write(
+            output_path_reverb,  
+            reverb_signal,         
+            self.fs,                   
+            subtype="PCM_16"     
+           )
     
     def _set_speech_host_pos(self,listdata,split_size=100):
         '''
@@ -415,8 +565,8 @@ class rir_room:
                 if len(audio.shape) > 1:
                     audio = audio[0]
             
-                st_time = int(listdata["start_time"][index] * self.fs)
-                ed_time = int(listdata["end_time"][index] * self.fs)
+                st_time = int(listdata["start_time"][start_index + index] * self.fs)
+                ed_time = int(listdata["end_time"][start_index + index] * self.fs)
                 audio = audio[:ed_time-st_time]    
                     
                     
@@ -437,7 +587,8 @@ class rir_room:
             self.host_pos.append(src_pos)
             self.host_audio.append(final_audio)
             delay=listdata["start_time"][start_index]
-            self.room.add_source(src_pos, signal=final_audio, delay=delay)
+            self.host_delay.append(delay)
+            #self.room.add_source(src_pos, signal=final_audio, delay=delay)
 
             start_index += chunks
     
@@ -893,3 +1044,4 @@ if __name__ == '__main__':
                    "/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/diffuse_noise"
                    )
     
+
