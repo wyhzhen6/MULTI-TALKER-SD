@@ -648,6 +648,9 @@ class multichannel_rir_room:
                     self.SRR_circle2.append(
                         self._compute_SRR(seg_audio, rir3, self.fs))
                     self.DRR_circle2.append(self._compute_DRR(rir3, self.fs))
+                    
+                idx += 1
+                
             # Host speaker
             if self.meeting_type == "speech":
                 item = next(
