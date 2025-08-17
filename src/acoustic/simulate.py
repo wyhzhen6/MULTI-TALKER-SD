@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from scipy.io import wavfile
 import pyroomacoustics as pra
 
-from rir_room import rir_room
+from rir_room import singlechannel_rir_room
 import yaml
 from tqdm import tqdm
 
@@ -32,7 +32,7 @@ def process_chunk(
     ):
     
     for file in chunk_lines:
-        room = rir_room(
+        room = singlechannel_rir_room(
             filepath = file,
             simulate_config = simulate_config
         )
@@ -111,7 +111,7 @@ if __name__ == "__main__":
 
     args=parser.parse_args()
     
-    os.makedirs(os.path.join(args.output_dir, 'clean'), exist_ok=True)
+    os.makedirs(os.path.join(args.output_dir, 'reverb'), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, 'noisy'), exist_ok=True)
     
     config = yaml.safe_load(open(args.config, 'r'))

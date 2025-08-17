@@ -305,83 +305,9 @@ class singlechannel_rir_room:
         host_label = item["label"]
         self.speech_host_label = host_label
     
-    def simulate_v1(self, output_dir):
-        '''
-            rir simulate
-        '''
-        
-        # set host label
-        if self.meeting_type == "speech":
-            host_label = self.simulate_config.get('host_label', )
-            self._set_host_label(host_label)
-        
-        audio = []
-        for index, item in enumerate(self.listdata):
-            if item["label"] != self.speech_host_label:
-                # set src_pos
-                src_pos = self._set_pos()
-                # merge audio
-                signals = self._merge_audio(item)
-
-                # set gain
-                signal_gain = random.uniform(self.signal_gains_arr[0],self.signal_gains_arr[1])
-                self.gains.append(signal_gain)
-                signals = self._set_gain(torch.from_numpy(signals), signal_gain).numpy()
-
-                # prepare audio for computing SRR
-                if self.is_compute_SRR:
-                    audio.append(signals)
-                
-                # add source for rir room
-                self.room.add_source(src_pos, signal=signals, delay=item["start_time"][0])
-
-        # set host pos
-        if self.meeting_type == "speech":
-            item = next((item for item in self.listdata if item["label"] == self.speech_host_label), None)
-            self._set_speech_host_pos(item)
-        
-        # rir simulate
-        self.room.simulate()
-    
-        # compute SRR
-        if self.is_compute_SRR:
-            for i in range(len(audio)):
-                rir1 = self.room.rir[0][i]
-                self.SRR.append(self._compute_SRR(audio[i],rir1, self.fs))
-                self.DRR.append(self._compute_DRR(rir1,self.fs))
-
-            if self.meeting_type == "speech":
-                item = next((item for item in self.listdata if item["label"] == self.speech_host_label), None)
-                host_srr = []
-                host_drr = []
-                for index2, audio_host in enumerate(self.host_audio):
-                    rir1 = self.room.rir[0][index2+len(audio)] 
-                    host_srr.append(self._compute_SRR(audio_host,rir1,self.fs))
-                    host_drr.append(self._compute_DRR(rir1,self.fs))
-                self.SRR.append(np.mean(host_srr))    
-                self.DRR.append(np.mean(host_drr))
-            self.SRR = np.mean(self.SRR)
-
-        if self.is_compute_DRR:
-            self.drr = np.mean(self.DRR)
-
-        #save reverb audio
-        filename = os.path.splitext(os.path.basename(self.filepath))[0]
-        reverb_signal = np.asarray(self.room.mic_array.signals, dtype=np.float32)
-        reverb_signal = reverb_signal.T
-        output_path_reverb = os.path.join(output_dir,"reverb", f"{filename}_reverb.wav")
-        sf.write(
-            output_path_reverb,  
-            reverb_signal,         
-            self.fs,                   
-            subtype="PCM_16"     
-           )
-
     def simulate(self, output_dir):
         '''
-        Simulate multi-channel signals by generating RIRs for each source position,
-        convolving each speech segment with the corresponding RIR using fftconvolve,
-        and summing the results into the simulated microphone signals.
+        rir simulate
         '''
         # Set host label for 'speech' meeting type
         if self.meeting_type == "speech":
@@ -407,7 +333,7 @@ class singlechannel_rir_room:
         if self.meeting_type == "speech":
             item = next(
                 (item for item in self.listdata if item["label"] == self.speech_host_label), None)
-            self.set_speech_host_pos(item)
+            self._set_speech_host_pos(item)
             for hpos in self.host_pos:
                 src_positions.append(hpos)
                 self.room.add_source(hpos)
@@ -511,6 +437,7 @@ class singlechannel_rir_room:
         reverb_signal = np.asarray(self.room.mic_array.signals, dtype=np.float32)
         reverb_signal = reverb_signal.T
         output_path_reverb = os.path.join(output_dir,"reverb", f"{filename}_reverb.wav")
+        os.makedirs(os.path.dirname(output_path_reverb), exist_ok=True)
         sf.write(
             output_path_reverb,  
             reverb_signal,         

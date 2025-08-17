@@ -11,7 +11,8 @@ speaker:
   # number: ['1-5:0.1', '6-10:0.2', '11-20:0.5', '21-30:0.2']
   number: ['11-20:0.7', '21-30:0.3']
   gender: ['1:0.15', '0:0.15', '0.5:0.233', '0.4:0.233', '0.6:0.233']   # default 'Male ratio : situation ratio'
-  language: ['1:0.33', '0:0.33', 'unif:0.33']                           # default 'English ratio : situation ratio'
+  language: ['1:0.3', '0:0.3', '0.8:0.2', '0.2:0.2']                           # default 'English ratio : situation ratio'
+
 
 utterance: '150-250:unif'
 meeting:   
@@ -20,11 +21,11 @@ meeting:
   #   For a sample, there is a probability of 0.5/(0.3+0.5)=0.625 that it is set to type p
   discussion:
     type_weight: 0.5
-    interval_ratio: [0.4, 0.5, 0.07, 0.03]   # silence, overlap(2 speaker), overlap(3 speaker), overlap(4 speaker)
+    interval_ratio: [0.3, 0.6, 0.07, 0.03]   # silence, overlap(2 speaker), overlap(3 speaker), overlap(4 speaker)
     silence: '1.5-0.5:norm'                      # Gaussian distribution with a mean of 3s and a standard deviation of 2s
     # or silence: '0.10-0.30:unif'   # 5%-15%
     overlap:  
-      2: '0.5-3:unif'         # 0.5s - 3s 
+      2: '1-3:unif'         # 0.5s - 3s 
       3: '0.5-1:unif'         # 0.5s - 1s
       4: '0.5-0.8:unif'       # 0.5s - 0.8s
 
@@ -33,18 +34,20 @@ meeting:
     type_weight: 0.5
     main_speaker: '0.2-0.3:0.6-0.7'
     main_speaker_shuffle: 0.1
-    interval_ratio: [0.8, 0.2]   # silence, overlap(2 speaker), overlap(3 speaker), overlap(4 speaker)
+    interval_ratio: [0.6, 0.3, 0.1]   # silence, overlap(2 speaker), overlap(3 speaker), overlap(4 speaker)
     silence: '1-0.5:norm'        # Gaussian distribution with a mean of 3s and a standard deviation of 2s
     overlap:  
       2: '0.5-1:unif'         # 0.5s - 1s 
+      3: '0.5-0.8:unif'       # 0.5s - 0.8s
   
   interview:
     type_weight: 0.5
     interviewer_ratio: '0.15-0.2'
-    interval_ratio: [0.8, 0.2]  
+    interval_ratio: [0.6, 0.3, 0.1]  
     silence: '1-0.5:norm'        
     overlap:  
       2: '0.5-1:unif'         # 0.5s - 1s 
+      3: '0.5-0.8:unif'       # 0.5s - 0.8s
     
 
 vad_pretrained_model: 'cache/pyannote-vad/pytorch_model.bin'
@@ -70,9 +73,9 @@ simulate_config:
   host_label: null  # set moving host of speech scene
   signal_gains: [1,5] # min, max gain for src_signal
   SNR_point : null
-  SNR_point_arr : [5,8]  # min, max snr of point noise
+  SNR_point_arr : [2,6]  # min, max snr of point noise
   SNR_diffuse: null
-  SNR_diffuse_arr: [6,10]  # min, max snr of diffuse noise
+  SNR_diffuse_arr: [3,8]  # min, max snr of diffuse noise
   is_compute_DRR: true   # if compute DRR
   is_compute_SRR: true   # if compute SRR
 
@@ -100,8 +103,8 @@ multi_channel_simulate_config:
   host_label: null  # set moving host of speech scene
   signal_gains: [1,5] # min, max gain for src_signal
   SNR_point : null
-  SNR_point_arr : [5,8]  # min, max snr of point noise
+  SNR_point_arr : [2,6]  # min, max snr of point noise
   SNR_diffuse: null
-  SNR_diffuse_arr: [6,10]  # min, max snr of diffuse noise
+  SNR_diffuse_arr: [3,8]  # min, max snr of diffuse noise
   is_compute_DRR: true   # if compute DRR
   is_compute_SRR: true   # if compute SRR

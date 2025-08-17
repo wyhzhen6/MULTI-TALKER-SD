@@ -6,6 +6,7 @@
 /metadata/
 /noise_dataset/
 /exp/
+/tools/
 
 # Python cache
 __pycache__/

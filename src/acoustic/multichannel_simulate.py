@@ -110,7 +110,7 @@ if __name__ == "__main__":
 
     args=parser.parse_args()
     
-    os.makedirs(os.path.join(args.output_dir, 'clean'), exist_ok=True)
+    #os.makedirs(os.path.join(args.output_dir, 'reverb'), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, 'noisy'), exist_ok=True)
     
     config = yaml.safe_load(open(args.config, 'r'))

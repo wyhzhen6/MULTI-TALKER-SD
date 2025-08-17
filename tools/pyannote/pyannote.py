@@ -26,5 +26,5 @@ diarization = pipeline({"waveform": waveform, "sample_rate": sample_rate})
 # dump the diarization output to disk using RTTM format
 with open(args.output_rttm, "w") as rttm:
     diarization.write_rttm(rttm)
-input_wavs = args.input_wavstmux
+input_wavs = args.input_wavs
 print(f"deal with {input_wavs} : {time.time()-start_times}")

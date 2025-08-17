@@ -6,16 +6,16 @@ log() {
   	echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-stage=3
+stage=0
 stop_stage=3
 
 
 # ================= Fill in according to actual =================
-exp_dir=exp/exp1				# where .wav to store
-librispeech_dir=/home3/yihao/Research/Code/Large-scale-diarization-dataset/script/data/LibriSpeech		# 
-aishell_1_dir=/home3/yihao/Research/Code/Large-scale-diarization-dataset/script/data/AISHELL-1			# Usually named data_aishell
-point_noise_path=/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/point_noise 
-diffuse_noise_path=/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/diffuse_noise 
+exp_dir=exp/dataset				# where .wav to store
+librispeech_dir=		# LibriSpeech
+aishell_1_dir=		# Usually named data_aishell
+point_noise_path= 
+diffuse_noise_path=
 mkdir -p $exp_dir
 
 
@@ -62,9 +62,8 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
 fi
 
 
-
 # subsets=(test)
-subsets=(test)
+subsets=(train test dev)
 # ============================ speaker logging ============================ #
 # conda activate whisperX
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
@@ -99,29 +98,39 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 fi
 
 
-subsets=(test)
-# subsets=(train test dev)
+# subsets=(test)
+subsets=(train test dev)
 if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
-	for subset in "${subsets[@]}"; do
-		subset_dir=$exp_dir/$subset
-		mkdir -p $subset_dir/wavs
+    for subset in "${subsets[@]}"; do
+        subset_dir="$exp_dir/$subset"
+        mkdir -p "$subset_dir/wavs"
 
-		log "Acoustic simulate"
-		python src/acoustic/multichannel_simulate.py \
-				--config config/config.yaml \
-				--logging_list $subset_dir/samples \
-				--output_dir $subset_dir/wavs \
-				--point_noise_path $point_noise_path \
-				--diffuse_noise_path $diffuse_noise_path \
-				--num_workers 4
-		
-		# python src/acoustic/simulate.py \
-		# 		--config config/config.yaml \
-		# 		--logging_list $subset_dir/samples \
-		# 		--output_dir $subset_dir/wavs \
-		# 		--point_noise_path $point_noise_path \
-		# 		--diffuse_noise_path $diffuse_noise_path \
-		# 		--num_workers 4
-	done
-	#cp config/config.yaml $subset_dir
+        log "Acoustic simulate for $subset"
+        python src/acoustic/multichannel_simulate.py \
+            --config config/config.yaml \
+            --logging_list "$subset_dir/samples" \
+            --output_dir "$subset_dir/multichannel-wavs" \
+            --point_noise_path "$point_noise_path" \
+            --diffuse_noise_path "$diffuse_noise_path" \
+            --num_workers 4
+        
+        python src/acoustic/simulate.py \
+            --config config/config.yaml \
+            --logging_list "$subset_dir/samples" \
+            --output_dir "$subset_dir/wavs" \
+            --point_noise_path "$point_noise_path" \
+            --diffuse_noise_path "$diffuse_noise_path" \
+            --num_workers 4
+
+        # For clean wav
+		# mkdir -p "$subset_dir/wavs/clean"
+		# for file in "$subset_dir"/samples/*; do
+    	# 	line=$(basename "$file")
+    	# 	log "Processing ${line} for clean wav"
+    	# 	python src/speaker_log/create_wav.py \
+        # 		--logging_file "$file" \
+        # 		--output_dir "$subset_dir/wavs/clean"
+		# done
+        
+    done
 fi

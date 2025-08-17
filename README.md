@@ -25,7 +25,7 @@ bash script/download_librispeech.sh <your_save_dir>
     * torchaudio
 可以使用项目内提供的 requirements.txt 文件快速配置 Conda 环境：
 ```
-conda create -n diarization_env python=3.x
+conda create -n diarization_env python=3.10 -y
 conda activate diarization_env
 pip install -r requirements.txt
 ```
@@ -35,11 +35,11 @@ pip install -r requirements.txt
 * Run `run.sh`
 关键参数：
 ```
-    $exp_dir                # 生成的wav文件的存放路径      
-    librispeech_dir=		# librispeech的路径，确保该路径下存在 SPEAKERS.TXT 文件
-    aishell_1_dir=!	        # aishell_1的路径，确保该路径下存在 resource_aishell 文件夹（里面存放speaker.info和lexicon.txt）
-    point_noise_path=        # 点噪声数据路径
-    diffuse_noise_path=      # 漫反射噪声数据路径
+    exp_dir                # 生成的wav文件的存放路径      
+    librispeech_dir		# librispeech的路径，确保该路径下存在 SPEAKERS.TXT 文件
+    aishell_1_dir	        # aishell_1的路径，确保该路径下存在 resource_aishell 文件夹（里面存放speaker.info和lexicon.txt）
+    point_noise_path        # 点噪声数据路径
+    diffuse_noise_path      # 漫反射噪声数据路径
 ```
 
 * 生成关键设置 config/config.yaml
