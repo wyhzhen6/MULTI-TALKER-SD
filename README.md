@@ -50,6 +50,6 @@ Key parameters:
 
 * Key Configuration in config/config.yaml
 
-iteration: Number of iterations. The program will attempt this many iterations, generating at most one WAV file per iteration. The total number of generated WAV files will be less than or equal to iteration.
+  iteration: Number of iterations. The program will attempt this many iterations, generating at most one WAV file per iteration. The total number of generated WAV files will be less than or equal to iteration.
 
-max_examples: Maximum number of WAV files to generate. To generate an exact number of WAV files, adjust this parameter. For example, setting it to 100 will generate exactly 100 WAV files. It must be smaller than iteration; otherwise, it will be ignored.
+  max_examples: Maximum number of WAV files to generate. To generate an exact number of WAV files, adjust this parameter. For example, setting it to 100 will generate exactly 100 WAV files. It must be smaller than iteration; otherwise, it will be ignored.
