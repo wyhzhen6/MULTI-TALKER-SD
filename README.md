@@ -28,6 +28,7 @@ Point-source and diffuse-field noise data can be downloaded from the following l
     * tqdm
     * torch
     * torchaudio
+      
 You can quickly set up a Conda environment using the provided requirements.txt：
 ```
 conda create -n diarization_env python=3.10 -y
