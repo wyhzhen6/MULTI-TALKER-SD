@@ -4,9 +4,9 @@ This project provides Multi-Talker-SD, a large-scale bilingual (English–Mandar
 
 The repository is organized into two main components:
 
-Frontend: Speaker Logging, including metadata management and diarization-ready segmentation.
+**Frontend**: Speaker Logging, including metadata management and diarization-ready segmentation.
 
-Backend: Acoustic Model Construction, including synthesis pipeline, noise/reverberation modeling, and audio generation.
+**Backend**: Acoustic Model Construction, including synthesis pipeline, noise/reverberation modeling, and audio generation.
 
 ---
 
