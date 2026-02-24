@@ -54,6 +54,4 @@ Key parameters:
 
   max_examples: Maximum number of WAV files to generate. To generate an exact number of WAV files, adjust this parameter. For example, setting it to 100 will generate exactly 100 WAV files. It must be smaller than iteration; otherwise, it will be ignored.
   
-## Resources
 
-* 📂 **Dataset:** [Multi-Talker-SD (Hugging Face)](https://huggingface.co/datasets/yihao005/Multi-Talker-SD)
