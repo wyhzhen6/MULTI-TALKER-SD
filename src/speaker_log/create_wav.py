@@ -42,7 +42,7 @@ if __name__ == '__main__':
             assert sr == args.sample_rate, f"Sample rate mismatch: {sr} != {args.sample_rate}"
             waveform = waveform[:, 0] if len(waveform.shape) > 1 else waveform
 
-            cutting_start_time = int(float(keys[4]) * args.sample_rate)
+            cutting_start_time = int(float(keys[5]) * args.sample_rate) if len(keys) > 5 else 0
             duration = ed - st
             lens = min(len(waveform)-cutting_start_time, duration)
             try:

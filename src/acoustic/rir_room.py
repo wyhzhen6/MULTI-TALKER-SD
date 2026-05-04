@@ -173,12 +173,14 @@ class singlechannel_rir_room:
                     index["start_time"].append(start_time)
                     index["end_time"].append(end_time)
                     index["file_path"].append(parts[3])
+                    index["cut_start"].append(float(parts[4]) if len(parts) > 4 else 0.0)
                 else:
                     self.listdata.append({
                         "start_time": [start_time],  
                         "end_time": [end_time],    
                         "label": parts[2],              
                         "file_path": [parts[3]],
+                        "cut_start": [float(parts[4]) if len(parts) > 4 else 0.0],
                         "end": float(parts[1]),
                     })
 
@@ -375,7 +377,9 @@ class singlechannel_rir_room:
                         audio = audio[0]
                     st_time = int(item["start_time"][seg_idx] * self.fs)
                     ed_time = int(item["end_time"][seg_idx] * self.fs)
-                    seg_audio = audio[:ed_time - st_time]
+                    cut_start_sec = item.get("cut_start", [0.0]*len(item["start_time"]))[seg_idx]
+                    cut_start_samples = int(cut_start_sec * self.fs)
+                    seg_audio = audio[cut_start_samples : cut_start_samples + (ed_time - st_time)]
                     seg_audio = self._set_gain(
                         torch.from_numpy(seg_audio), signal_gain).numpy()
 
@@ -433,17 +437,17 @@ class singlechannel_rir_room:
             self.drr = np.mean(self.DRR)
 
         #save reverb audio
-        filename = os.path.splitext(os.path.basename(self.filepath))[0]
-        reverb_signal = np.asarray(self.room.mic_array.signals, dtype=np.float32)
-        reverb_signal = reverb_signal.T
-        output_path_reverb = os.path.join(output_dir,"reverb", f"{filename}_reverb.wav")
-        os.makedirs(os.path.dirname(output_path_reverb), exist_ok=True)
-        sf.write(
-            output_path_reverb,  
-            reverb_signal,         
-            self.fs,                   
-            subtype="PCM_16"     
-           )
+        # filename = os.path.splitext(os.path.basename(self.filepath))[0]
+        # reverb_signal = np.asarray(self.room.mic_array.signals, dtype=np.float32)
+        # reverb_signal = reverb_signal.T
+        # output_path_reverb = os.path.join(output_dir,"reverb", f"{filename}_reverb.wav")
+        # os.makedirs(os.path.dirname(output_path_reverb), exist_ok=True)
+        # sf.write(
+        #     output_path_reverb,  
+        #     reverb_signal,         
+        #     self.fs,                   
+        #     subtype="PCM_16"     
+        #    )
     
     def _set_speech_host_pos(self,listdata,split_size=100):
         '''
@@ -706,17 +710,26 @@ class singlechannel_rir_room:
 
         #pos
         if noise_list[1] == 'near':
-            center = self.loc[random.randint(0,len(self.loc)-1)]
-            r = random.uniform(0.1,0.35)
+            # pick a center near an existing source if available,
+            # otherwise pick a random valid center inside the room
+            if len(self.loc) > 0:
+                center = self.loc[random.randint(0, len(self.loc) - 1)]
+            else:
+                center = [
+                    random.uniform(self.d, self.room_size[0] - self.d),
+                    random.uniform(self.d, self.room_size[1] - self.d),
+                    noise_height,
+                ]
+            r = random.uniform(0.1, 0.35)
             theta = random.uniform(0, 2 * math.pi)
             x = center[0] + r * math.cos(theta)
             y = center[1] + r * math.sin(theta)
 
             # Prevent out-of-bounds and ensure that it is within [d, room_size - d]
-            x = min(max(x, self.d ), self.room_size[0] - self.d)
+            x = min(max(x, self.d), self.room_size[0] - self.d)
             y = min(max(y, self.d), self.room_size[1] - self.d)
 
-            noise_pos = [x,y,noise_height]
+            noise_pos = [x, y, noise_height]
 
 
         elif noise_list[1] == 'far':
@@ -751,7 +764,7 @@ class singlechannel_rir_room:
         
         return room_for_noise.mic_array.signals
 
-    def _gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 15,max_segments = None):
+    def _gen_point_noise(self,category_files,target_categories,noise_path,min_segments = 5,max_segments = None):
         '''
             gen final point noise audio
             gen intervals between each point noise
@@ -759,7 +772,7 @@ class singlechannel_rir_room:
         '''
 
         if max_segments == None:
-            max_segments = int(self.audio_len/16)
+            max_segments = max(int(self.audio_len / 16), min_segments + 1)
         point = np.random.randint(min_segments, max_segments)
 
         intervals = np.random.exponential(15.0, size=point)
@@ -784,8 +797,8 @@ class singlechannel_rir_room:
             start = time_cursor + interval[i]
             end = start + dur
             
-            if end > self.audio_len or i == point-1:
-                # print(f"add {noise_num} point noise")
+            if end > self.audio_len:
+                # stop if this noise would extend past the audio length
                 break 
             self.point_noise_time += dur 
             time_cursor = end
@@ -799,6 +812,11 @@ class singlechannel_rir_room:
 
             noise_num+=1
             
+        # If no point noise was generated, return a small zero array
+        if final_point_noise_audio is None:
+            total_len = int(self.audio_len * self.fs) if self.audio_len > 0 else 1
+            return np.zeros((1, total_len), dtype=np.float32)
+
         return final_point_noise_audio
 
     def _compute_DRR(self,h, fs, t_direct_ms=5):
@@ -850,11 +868,14 @@ class singlechannel_rir_room:
             snr2 = 10**(SNR_diffuse/10.0)
             speech_power = torch.sum(speech_sig**2)/vad_duration
 
-            point_power = torch.sum(point_noise**2)/int(self.point_noise_time)
-            point_update =  point_noise / torch.sqrt(snr1 * point_power/speech_power)
+            # avoid division by zero when no point noise or extremely short noise_time
+            point_dur = max(int(self.point_noise_time), 1)
+            point_power = torch.sum(point_noise**2) / point_dur
+            point_update = point_noise / torch.sqrt(snr1 * point_power / speech_power)
 
-            diffuse_power = torch.sum(diffuse_noise**2)/int(diffuse_noise.shape[0]/self.fs)
-            diffuse_update = diffuse_noise / torch.sqrt(snr2 * diffuse_power/speech_power)
+            diffuse_dur = max(int(diffuse_noise.shape[0] / self.fs), 1)
+            diffuse_power = torch.sum(diffuse_noise**2) / diffuse_dur
+            diffuse_update = diffuse_noise / torch.sqrt(snr2 * diffuse_power / speech_power)
             
             avg_diffuse_snr = (self.audio_len-self.point_noise_time)*SNR_diffuse 
             diifuse_point_snr =  speech_power / (point_power+diffuse_power)
@@ -908,13 +929,12 @@ class singlechannel_rir_room:
         point_noise = self._gen_point_noise(self.category_files, self.target_categories, point_noise_path)
         diffuse_file = random.choice(os.listdir(diffuse_noise_path))
         diffuse_noise, fs = sf.read(os.path.join(diffuse_noise_path, diffuse_file))
-        
-        
+
         if fs != self.fs:
-            noise = self.resample(noise, fs, self.fs)
+            diffuse_noise = self.resample(diffuse_noise, fs, self.fs)
             fs = self.fs
-        
-        diffuse_noise = diffuse_noise[:,np.newaxis]
+
+        diffuse_noise = diffuse_noise[:, np.newaxis]
         if SNR_point == None:
             SNR_point = random.randint(SNR_point_arr[0],SNR_point_arr[1])
         self.SNR_point = SNR_point
@@ -925,13 +945,19 @@ class singlechannel_rir_room:
 
 
         reverb_signal = self.room.mic_array.signals
-        final_signal = self._add_noise(speech_sig = torch.from_numpy(reverb_signal.T),
-                                       vad_duration = self.vad_dur,
-                                       point_noise = torch.from_numpy(point_noise.T),
-                                       diffuse_noise = torch.from_numpy(diffuse_noise), 
-                                       SNR_point = self.SNR_point,
-                                       SNR_diffuse = self.SNR_diffuse
-                                    )
+
+        # ensure point_noise is a numpy array (not None) and has valid shape
+        if point_noise is None:
+            point_noise = np.zeros((1, 1), dtype=np.float32)
+
+        final_signal = self._add_noise(
+            speech_sig=torch.from_numpy(reverb_signal.T),
+            vad_duration=self.vad_dur,
+            point_noise=torch.from_numpy(point_noise.T),
+            diffuse_noise=torch.from_numpy(diffuse_noise),
+            SNR_point=self.SNR_point,
+            SNR_diffuse=self.SNR_diffuse,
+        )
         
         final_signal = final_signal.numpy()
         os.makedirs(os.path.join(output_dir,"noisy"), exist_ok=True)  

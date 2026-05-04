@@ -14,6 +14,7 @@ from tqdm import tqdm
 from rank_base import UtteranceCluster, Utterance, random_call, Segment
 import multiprocessing as mp
 import re
+import math
 
 # logging.basicConfig(
 #     level=logging.INFO,
@@ -106,7 +107,9 @@ class UtteranceRanks():
                 i,
                 self.utt_list[i]['duration'], 
                 self.utt_list[i]['speaker_id'], 
-                None
+                None,
+                None,
+                self.utt_list[i].get('vad_start', 0.0)
             ) 
             for i in idex
         ]
@@ -220,12 +223,14 @@ class UtteranceRanks():
 
             if i.cutting_flag == False:
                 start_times.append(i.head_time)
-                cutting_timestamp.append((0, i.utt_list[0].duration))
+                vad_start = i.utt_list[0].vad_start if hasattr(i.utt_list[0], 'vad_start') else 0.0
+                cutting_timestamp.append((vad_start, i.utt_list[0].duration))
                 cutting_texts.append('<whole>')
                 nowtime = i.head_time + i.utt_list[0].duration
                 for j in i.utt_list[1:]:
                     start_times.append(j.head_time + nowtime)
-                    cutting_timestamp.append((0, j.duration))
+                    j_vad_start = j.vad_start if hasattr(j, 'vad_start') else 0.0
+                    cutting_timestamp.append((j_vad_start, j.duration))
                     cutting_texts.append('<whole>')
                     nowtime = nowtime + j.head_time + j.duration
                 assert np.abs(nowtime - i.head_time - i.duration) < 1e-3, f"nowtime: {nowtime}, head_time: {i.head_time}, duration: {i.duration}"
@@ -242,7 +247,8 @@ class UtteranceRanks():
                         # 交换机制能一定程度抑制
                     else:
                         start_times.append(i.head_time)
-                        cutting_timestamp.append((j.head_time, i.duration))
+                        vad_start = j.vad_start if hasattr(j, 'vad_start') else 0.0
+                        cutting_timestamp.append((vad_start + j.head_time, i.duration))
                         cutting_texts.append(i.text)
 
         return [start_times, cutting_timestamp, cutting_texts]
@@ -459,8 +465,9 @@ if __name__ == '__main__':
         all_lines = f.readlines()
 
     num_processes = args.workers
-    batch_size = len(all_lines) // num_processes + 1
-    batches = [all_lines[i*batch_size:(i+1)*batch_size] for i in range(num_processes)]
+    num_samples = len(all_lines)
+    batch_size = math.ceil(num_samples / num_processes)  # 向上取整，保证覆盖所有样本
+    batches = [all_lines[i*batch_size : min((i+1)*batch_size, num_samples)] for i in range(num_processes)]
     print(f"[Main] Total {len(all_lines)} samples, split into {num_processes} processes, batch size {batch_size}")
     
     manager = mp.Manager()

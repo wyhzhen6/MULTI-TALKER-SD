@@ -11,11 +11,11 @@ stop_stage=3
 
 
 # ================= Fill in according to actual =================
-exp_dir=exp/dataset				# where .wav to store
-librispeech_dir=		# LibriSpeech
-aishell_1_dir=		# Usually named data_aishell
-point_noise_path= 
-diffuse_noise_path=
+exp_dir=exp/dataset-test	# where .wav to store
+librispeech_dir=/home3/yihao/Research/Code/Large-scale-diarization-dataset/script/data/LibriSpeech		# LibriSpeech
+aishell_1_dir=/home3/yihao/Research/Code/Large-scale-diarization-dataset/script/data/AISHELL-1	# Usually named data_aishell
+point_noise_path=/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/point_noise
+diffuse_noise_path=/home3/yihao/Research/Code/Large-scale-diarization-dataset/noise_dataset/diffuse_noise
 mkdir -p $exp_dir
 
 
@@ -42,6 +42,12 @@ if [ $stage -le 0 ] && [ $stop_stage -ge 0 ]; then
 			--output_dir 		$lang_out	\
 			--transcript		$aishell_1_dir/data_aishell/transcript/aishell_transcript_v0.8.txt 
 	log "Finished generating metadata for Aishell-1 dataset"
+
+	# =============================== Clean Metadata ======================= #
+	log "Cleaning metadata with VAD to extract true speech activity durations"
+	python src/metadata/clean_metadata_vad.py \
+			--metadata_dir metadata
+	log "Finished cleaning metadata"
 
 fi
 
@@ -91,8 +97,8 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 				--output_dir $subset_dir/samples \
 				--samples_nums $samples_nums \
 				--config config/config.yaml \
-				--gpus 0 1 2 3 \
-				--workers 4\
+				--gpus 0  \
+				--workers 1\
 				--cutting_type whisper  	# direct_truncation
 	done
 fi
@@ -106,13 +112,13 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
         mkdir -p "$subset_dir/wavs"
 
         log "Acoustic simulate for $subset"
-        python src/acoustic/multichannel_simulate.py \
-            --config config/config.yaml \
-            --logging_list "$subset_dir/samples" \
-            --output_dir "$subset_dir/multichannel-wavs" \
-            --point_noise_path "$point_noise_path" \
-            --diffuse_noise_path "$diffuse_noise_path" \
-            --num_workers 4
+        # python src/acoustic/multichannel_simulate.py \
+        #     --config config/config.yaml \
+        #     --logging_list "$subset_dir/samples" \
+        #     --output_dir "$subset_dir/multichannel-wavs" \
+        #     --point_noise_path "$point_noise_path" \
+        #     --diffuse_noise_path "$diffuse_noise_path" \
+        #     --num_workers 4
         
         python src/acoustic/simulate.py \
             --config config/config.yaml \
@@ -120,7 +126,7 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
             --output_dir "$subset_dir/wavs" \
             --point_noise_path "$point_noise_path" \
             --diffuse_noise_path "$diffuse_noise_path" \
-            --num_workers 4
+            --num_workers 1
 
         # For clean wav
 		# mkdir -p "$subset_dir/wavs/clean"
@@ -133,4 +139,19 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
 		# done
         
     done
+fi
+
+
+# ============================ Generate RTTM Labels ============================ #
+if [ $stage -le 4 ] && [ $stop_stage -ge 4 ]; then
+    for subset in "${subsets[@]}"; do
+        subset_dir="$exp_dir/$subset"
+        mkdir -p "$subset_dir/rttms"
+        
+        log "Generating RTTM files for $subset"
+        python src/speaker_log/list_to_rttm.py \
+            --list_dir "$subset_dir/samples" \
+            --output_dir "$subset_dir/rttms"
+    done
+    log "All stages completed successfully."
 fi

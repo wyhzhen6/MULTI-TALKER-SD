@@ -17,11 +17,12 @@ class Segment:
 
 
 class Utterance:
-    def __init__(self, idx, duration, speaker_id, head_time, text=None):
+    def __init__(self, idx, duration, speaker_id, head_time, text=None, vad_start=0.0):
         self.idx = idx
         self.duration = duration
         self.speaker_id = speaker_id
         self.head_time = head_time
+        self.vad_start = vad_start
     
 
 class UtteranceCluster():
