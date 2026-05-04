@@ -54,10 +54,8 @@ Key parameters:
 
   max_examples: Maximum number of WAV files to generate. To generate an exact number of WAV files, adjust this parameter. For example, setting it to 100 will generate exactly 100 WAV files. It must be smaller than iteration; otherwise, it will be ignored.
 
-## Resources
 
-* 📂 **Dataset Availability Notice:** This repository is released in anonymized form for the purpose of peer review.
-Due to the double-blind review policy, the full Multi-Talker-SD dataset is not publicly available at this stage.
+## 📊 Resources & Access
 
-The complete dataset, along with detailed documentation and access instructions, will be released upon acceptance of the paper.
+* 📂 **Dataset Availability Notice:** This repository and the complete dataset, along with detailed documentation [Hugging Face dataset](https://huggingface.co/datasets/yihao005/Multi-Talker-SD) are released.
 
