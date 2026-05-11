@@ -1,13 +1,20 @@
 #!/bin/bash
 # set -eou pipefail
+#SBATCH -J dataset_gen
+#SBATCH -o gpu-job-%j.output
+#SBATCH -e gpu-job-%j.error
+#SBATCH --gres=gpu:4
+#SBATCH -n 4
+#SBATCH --time=48:00:00
+
 log() {
   	# This function is from espnet
   	local fname=${BASH_SOURCE[1]##*/}
   	echo -e "$(date '+%Y-%m-%d %H:%M:%S') (${fname}:${BASH_LINENO[0]}:${FUNCNAME[1]}) $*"
 }
 
-stage=0
-stop_stage=3
+stage=2
+stop_stage=4
 
 
 # ================= Fill in according to actual =================
@@ -62,7 +69,7 @@ if [ $stage -le 1 ] && [ $stop_stage -ge 1 ]; then
 				--base_dir 	metadata \
 				--subset train test dev \
 				--dataset $lang/$dataset \
-				--radio 0.8 0.1 0.1
+				--radio 1 0 0
 		done
 	done
 fi
@@ -71,7 +78,9 @@ fi
 # subsets=(test)
 subsets=(train test dev)
 # ============================ speaker logging ============================ #
-# conda activate whisperX
+# Ensure conda environment is properly activated for SLURM jobs
+source /home3/yihao/anaconda3/etc/profile.d/conda.sh
+conda activate whisper-env
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 	for subset in "${subsets[@]}"; do
 		subset_dir=$exp_dir/$subset
@@ -97,7 +106,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
 				--output_dir $subset_dir/samples \
 				--samples_nums $samples_nums \
 				--config config/config.yaml \
-				--gpus 0  \
+				--gpus 0 1 2 3  \
 				--workers 1\
 				--cutting_type whisper  	# direct_truncation
 	done
@@ -120,23 +129,24 @@ if [ $stage -le 3 ] && [ $stop_stage -ge 3 ]; then
         #     --diffuse_noise_path "$diffuse_noise_path" \
         #     --num_workers 4
         
-        python src/acoustic/simulate.py \
-            --config config/config.yaml \
-            --logging_list "$subset_dir/samples" \
-            --output_dir "$subset_dir/wavs" \
-            --point_noise_path "$point_noise_path" \
-            --diffuse_noise_path "$diffuse_noise_path" \
-            --num_workers 1
+        # python src/acoustic/simulate.py \
+        #     --config config/config.yaml \
+        #     --logging_list "$subset_dir/samples" \
+        #     --output_dir "$subset_dir/wavs" \
+        #     --point_noise_path "$point_noise_path" \
+        #     --diffuse_noise_path "$diffuse_noise_path" \
+        #     --num_workers 1
 
         # For clean wav
-		# mkdir -p "$subset_dir/wavs/clean"
-		# for file in "$subset_dir"/samples/*; do
-    	# 	line=$(basename "$file")
-    	# 	log "Processing ${line} for clean wav"
-    	# 	python src/speaker_log/create_wav.py \
-        # 		--logging_file "$file" \
-        # 		--output_dir "$subset_dir/wavs/clean"
-		# done
+		mkdir -p "$subset_dir/wavs/clean"
+		for file in "$subset_dir"/samples/*; do
+			[ -e "$file" ] || continue
+    		line=$(basename "$file")
+    		log "Processing ${line} for clean wav"
+    		python src/speaker_log/create_wav.py \
+        		--logging_file "$file" \
+        		--output_dir "$subset_dir/wavs/clean"
+		done
         
     done
 fi

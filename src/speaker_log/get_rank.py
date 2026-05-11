@@ -466,50 +466,67 @@ if __name__ == '__main__':
 
     num_processes = args.workers
     num_samples = len(all_lines)
-    batch_size = math.ceil(num_samples / num_processes)  # 向上取整，保证覆盖所有样本
-    batches = [all_lines[i*batch_size : min((i+1)*batch_size, num_samples)] for i in range(num_processes)]
-    print(f"[Main] Total {len(all_lines)} samples, split into {num_processes} processes, batch size {batch_size}")
+    
+    # 重新计算 batch，确保每个子进程均匀分配
+    batch_size = math.ceil(num_samples / num_processes)
+    batches = [all_lines[i*batch_size : (i+1)*batch_size] for i in range(num_processes)]
+    
+    print(f"[Main] Total {num_samples} samples, split into {num_processes} processes.")
     
     manager = mp.Manager()
     progress_counter = manager.Value('i', 0) 
     lock = manager.Lock()
-    total = args.samples_nums
-    pbar = tqdm(total=total, desc="All Progress", unit="samples")
-
-    def progress_watcher(counter):
-        last = 0
-        while True:
-            with lock:
-                current = counter.value
-            if current >= total:
-                pbar.update(current - last)
-                break
-            if current > last:
-                pbar.update(current - last)
-                last = current
-
-
-    watcher = mp.Process(target=progress_watcher, args=(progress_counter,))
-    watcher.start()
     
-   
+    pbar = tqdm(total=num_samples, desc="All Progress", unit="samples")
 
-    # 启动多进程任务
+    # 使用更加可靠的异步结果处理来更新进度条
+    def update_pbar(_):
+        pbar.update(1)
+
+    # 启动进程池
     pool = mp.get_context('spawn').Pool(processes=num_processes)
+    
+    # 修改：我们将任务分发改为更细粒度，或者让原来的 process_batch 内部更频繁地更新 counter
+    # 这里我们采用在 pool.apply_async 中传入回调函数，或者直接在 process_batch 里对每个 sample 结束后写文件并 update
+    
     results = []
     for i in range(num_processes):
-        print(f"[Main] Submitting batch {i} with {len(batches[i])} lines to GPU {args.gpus[i % len(args.gpus)]}")
+        if i >= len(batches) or not batches[i]: continue
+        gpu_id = args.gpus[i % len(args.gpus)]
+        print(f"[Main] Submitting process {i} to GPU {gpu_id} with {len(batches[i])} samples")
         results.append(pool.apply_async(
             process_batch,
-            args=(batches[i], args, config, args.gpus[i%len(args.gpus)], i, progress_counter, lock)
+            args=(batches[i], args, config, gpu_id, i, progress_counter, lock)
         ))
+
+    # 在主进程中循环检查进度，实现进度条实时更新
+    last_val = 0
+    while True:
+        with lock:
+            current_val = progress_counter.value
+        if current_val > last_val:
+            pbar.update(current_val - last_val)
+            last_val = current_val
+        if current_val >= num_samples:
+            break
+        # 检查是否所有进程都已结束（防止死锁）
+        all_done = all(r.ready() for r in results)
+        if all_done and current_val < num_samples:
+            # 如果进程都结束了但计数还没到，补全进度条并退出
+            pbar.update(num_samples - last_val)
+            break
+        import time
+        time.sleep(1)
 
     pool.close()
     pool.join()
-    watcher.join()
+    pbar.close()
 
-    for r in results:
-        print(r.get())
+    for i, r in enumerate(results):
+        try:
+            print(f"[Main] Result from process {i}: {r.get(timeout=1)}")
+        except Exception as e:
+            print(f"[Main] Process {i} failed with error: {e}")
 
 
 #. ============= single worker =================
